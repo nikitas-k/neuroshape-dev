@@ -20,6 +20,8 @@ import numpy as np
 from scipy.signal import detrend
 from scipy.ndimage import gaussian_filter
 from scipy.spatial.distance import pdist, squareform
+from scipy.sparse.csgraph import minimum_spanning_tree
+from scipy.sparse import coo_matrix
 from numpy.linalg import svd
 from numpy.linalg import eig
 import os
@@ -27,7 +29,6 @@ from argparse import ArgumentParser
 from nilearn import image, masking
 from subprocess import Popen
 from neuroshape.eta import eta_squared
-from skimage.filters.thresholding import threshold_minimum
 
 os_path = dict(os.environ).get('PATH')
 
@@ -175,31 +176,17 @@ def compute_similarity(img_input, img_roi, img_mask):
     return s
 
 def thresh(w, s):
-    threshold = threshold_minimum(w)
-    binary = w > threshold
+    w_sparse = coo_matrix(w)
+    w_thr = minimum_spanning_tree(w_sparse)
+    w_thr = w_thr.toarray().astype(float)
+    binary = w_thr > 0.
     s_thresh = np.zeros(s.shape)
     s_thresh[binary] = s[binary]
+    n_edges = np.sum(np.size(s_thresh > 0.))
+    n_nodes = s_thresh.shape
+    density = 2*n_edges / np.prod(n_nodes)
     
-    return s_thresh, threshold
-    
-    # w_upper = np.triu(w, k=1)
-    # s_upper = np.triu(s, k=1)
-    # ind_upper = np.where(w_upper>0)[0]
-    # ind_srt = np.argsort(w_upper).flatten()
-    # w_thresh = np.zeros(w.shape)
-    # id_thresh = np.zeros_like(w_thresh)
-    # dns = np.linspace(0.001, 1, 1000)
-    
-    # for i in range(len(dns)):
-    #     ttl = int(np.ceil(ind_upper.shape[0]*dns[i]))
-    #     ind_ttl = np.unravel_index(ind_srt[0:ttl], shape=s_upper.shape)
-    #     w_thresh[ind_ttl] = s_upper[ind_ttl]
-    #     m = np.nonzero(w_thresh)
-    #     id_thresh[m] = 1.
-    #     n = connected_components(id_thresh)[0]
-    #     if n == 1:
-    #         return w_thresh
-    
+    return s_thresh, density
 
 def calc_LaplacianMatrix(s, num_gradients):
     # distance mapping
@@ -208,11 +195,7 @@ def calc_LaplacianMatrix(s, num_gradients):
     # threshold matrix
     print('Thresholding to minimum density needed for graph to remain connected')
     s_thresh, density = thresh(w, s)
-    #w_thresh += w_thresh.T
     
-    # convert to sparse matrix
-    # w_thresh_c = coo_matrix(w_thresh)
-    # density = w_thresh_c.getnnz() / np.prod(w_thresh_c.shape)
     print('Density of similarity graph needed to remain connected: {:.2f}%'.format(density))
     
     print('Computing Laplacian')

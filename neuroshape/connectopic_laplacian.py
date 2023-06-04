@@ -20,7 +20,7 @@ import numpy as np
 from scipy.signal import detrend
 from scipy.ndimage import gaussian_filter
 from scipy.spatial.distance import pdist, squareform
-from scipy.sparse.csgraph import minimum_spanning_tree
+from scipy.sparse.csgraph import minimum_spanning_tree, laplacian
 from scipy.sparse import coo_matrix
 from numpy.linalg import svd
 from numpy.linalg import eig
@@ -141,20 +141,19 @@ mat2nii(new_data, [folder, '/', basename, '_filtered.nii'], size(new_data), 32, 
 
 def normalize_data(data):
     data_normalized = detrend(data, type='constant')
-    for i in range(data_normalized.shape[0]):
-        data_normalized[i] = data_normalized[i]/np.std(data_normalized[i])
+    data_normalized = data_normalized/np.linalg.norm(data_normalized, ord=np.inf)
     
     return data_normalized
 
 def compute_similarity(img_input, img_roi, img_mask):
     data_msk = masking.apply_mask(img_input, img_mask)
-    data_ins = masking.apply_mask(img_input, img_roi)
-    
-    T = data_ins.shape[0]
-    
     print('Normalizing input timeseries')
     data_msk = normalize_data(data_msk)
-    data_ins = normalize_data(data_ins)
+    input_img = masking.unmask(data_msk, img_mask)
+    
+    data_ins = masking.apply_mask(input_img, img_roi)
+    
+    T = data_ins.shape[0]
     
     print('Running singular value decomposition on input timeseries')
     u, s, _ = svd(data_msk, full_matrices=False)
@@ -182,9 +181,10 @@ def thresh(w, s):
     binary = w_thr > 0.
     s_thresh = np.zeros(s.shape)
     s_thresh[binary] = s[binary]
+    s_thresh += s_thresh.T
     n_edges = np.sum(np.size(s_thresh > 0.))
     n_nodes = s_thresh.shape
-    density = 2*n_edges / np.prod(n_nodes)
+    density = 2.0*n_edges / np.prod(n_nodes)
     
     return s_thresh, density
 
@@ -199,10 +199,7 @@ def calc_LaplacianMatrix(s, num_gradients):
     print('Density of similarity graph needed to remain connected: {:.2f}%'.format(density))
     
     print('Computing Laplacian')
-    d = np.sum(s_thresh, axis=1)
-    D = np.diag(d)
-    
-    L = D - s_thresh
+    L = laplacian(s_thresh, normed=True)
     
     return L
     
@@ -212,6 +209,9 @@ def calc_gradients(img_input, img_roi, img_mask, num_gradients=2):
     L = calc_LaplacianMatrix(s, num_gradients)
     
     evals, egrads = eig(L)
+    
+    # shift values up to zero/positive only
+    egrads = egrads - np.min(egrads)
     
     # exclude the first eigenvalue, return only the non-zero `num_gradients` last gradients
     egrads = egrads[:, 1:num_gradients+1]
@@ -248,7 +248,7 @@ def connectopic_laplacian(data_input_filename, data_roi_filename, mask_filename,
         print('Smoothing with Gaussian kernel of FWHM = {}mm'.format(fwhm))
         data_input_filename = smooth(data_input_filename, fwhm)
     if filtering is True:
-        print('Performing Wishart filtering c.f. <https://github.com/Washington-University/HCPpipelines/tree/master/global/matlab/icaDim>')
+        print('Performing Wishart filtering using icaDim.m, see: <https://github.com/Washington-University/HCPpipelines/tree/master/global/matlab/icaDim>')
         data_input_filename = wishart(data_input_filename, mask_filename)
     
     print('Loading images')
@@ -265,7 +265,7 @@ def connectopic_laplacian(data_input_filename, data_roi_filename, mask_filename,
     
     # initialize nifti output array
     new_shape = np.array(roi_data.shape)
-    if roi_data.ndim>3:
+    if roi_data.ndim > 3:
         new_shape[3] = num_gradients
     else:
         new_shape = np.append(new_shape, num_gradients)
@@ -283,8 +283,10 @@ def connectopic_laplacian(data_input_filename, data_roi_filename, mask_filename,
     
     # write eigenvalues and gradient files
     if output_eval_filename:
+        print('Saving output eigenvalues file to {}'.format(output_eval_filename))
         np.savetxt(output_eval_filename, evals)
     if output_grad_filename:
+        print('Saving output gradients file to {}'.format(output_grad_filename))
         np.savetxt(output_grad_filename, egrads)
     
     # save figures TODO
@@ -334,7 +336,7 @@ def main(raw_args=None):
     print('$ data_output_filename=gradients.nii.gz \ ')
     print('$ num_gradients=20 \ ')
     print('$ fwhm=6 \ ')
-    print('$ python connectopic_laplacian.py ${data_input_filename} ${data_roi_filename} ${mask_filename} ${data_output_filename} -N ${num_gradients} --smoothing ${fwhm} --filtering ')
+    print('$ python connectopic_laplacian.py ${data_input_filename} ${data_roi_filename} ${mask_filename} ${data_output_filename} -N ${num_gradients} --smoothing ${fwhm} --filter ')
     print("")
     print('########################### RUN ##########################')
     print("")

@@ -38,7 +38,7 @@ static PyObject* eta_squared(PyObject* self, PyObject* args);
 static PyMethodDef EtaMethods[] = {
     {"eta_squared",
         eta_squared,
-        METH_VARARGS, "Compute eta-squared coefficient row-wise of a 2-dimensional array. Author: Nikitas C Koussis Systems Neuroscience Group Newcastle 2023"},
+        METH_VARARGS, "Compute eta-squared coefficient row-wise of a 2-dimensional array."},
     {NULL, NULL, 0, NULL}
 };
 
@@ -51,7 +51,6 @@ static PyObject* eta_squared(PyObject* self, PyObject* args)
 {
     PyArrayObject *arr, *oarr;
 
-    
     if (!PyArg_ParseTuple(args, "O!", &PyArray_Type, &arr)) return NULL;
     
 //     arr = (PyArrayObject *)
@@ -70,11 +69,12 @@ static PyObject* eta_squared(PyObject* self, PyObject* args)
 //    if (oarr == NULL) goto fail;
     
     /* code that makes use of arguments */
-    double *iptr=NULL, *jptr=NULL, *kptr=NULL, *outptr=NULL;
+    double *iptr=NULL, *jptr=NULL, *kptr=NULL, *iiptr=NULL, *outptr=NULL;
     
     npy_intp i,j,k;
     
     iptr = (double *)PyArray_DATA(arr);
+    iiptr = (double *)PyArray_DATA(arr);
     jptr = (double *)PyArray_DATA(arr);
     kptr = (double *)PyArray_DATA(arr);
     outptr = (double *)PyArray_DATA(oarr);
@@ -84,23 +84,34 @@ static PyObject* eta_squared(PyObject* self, PyObject* args)
     if (kptr == NULL) return NULL;
     if (outptr == NULL) return NULL;
     
-    double num;
-    double denom;
-    double total;
     double mu_bar;
-    double mu;
+    double mu_1 = 0;
     double vali, valk;
+    int count = 0;
     
+    /* Get mu_bar by taking mu over every pair */
     for (i = 0; i < num_rows; i++){
-        for (j = 0; j < num_cols; j++){
-            iptr = (arr->data + i*arr->strides[0] +
-                j*arr->strides[1]);
-            total += iptr[0];
+        for (k = 0; k< num_rows; k++){
+            for (j = 0; j < num_cols; j++){
+                iptr = (arr->data + i*arr->strides[0] +
+                    j*arr->strides[1]);
+                vali = iptr[0];
+                iiptr = (arr->data + k*arr->strides[0] +
+                    j*arr->strides[1]);
+                valk = iiptr[0];
+                
+                mu_1 += ((vali + valk) / 2);
+                count++;
+            }
         }
     }
-    mu_bar = total / (num_rows*num_cols);
+    mu_bar = (mu_1 / count);
+    
+    /* Main loop */
     for (i = 0; i < num_rows; i++){    
         for (k = 0; k < num_rows; k++){
+            double num = 0;
+            double denom = 0;
             for (j = 0; j < num_cols; j++){
                 jptr = (arr->data + i*arr->strides[0] +
                     j*arr->strides[1]);
@@ -108,25 +119,22 @@ static PyObject* eta_squared(PyObject* self, PyObject* args)
                 kptr = (arr->data + k*arr->strides[0] +
                     j*arr->strides[1]);
                 valk = kptr[0];
-        
+                
+                double mu = ((vali + valk) / 2);
+                double powera = pow((vali - mu), (double)2);
+                double powerb = pow((valk - mu), (double)2);
+                
+                double powerax = pow((vali - mu_bar), (double)2);
+                double powerbx = pow((valk - mu_bar), (double)2);
+                
+                num += (powera + powerb);
+                denom += (powerax + powerbx);
             }
-            double mu = (vali + valk) / 2;
-            
-            double powera = pow((vali - mu), (double)2);
-            double powerb = pow((valk - mu), (double)2);
-            
-            num = powera + powerb;
-            double powerax = pow((vali - mu_bar), (double)2);
-            double powerbx = pow((valk - mu_bar), (double)2);
-            
-            denom = powerax + powerbx;
-            
-            double eta = (double)1 - (num / denom);
+            double eta = 1 - (num / denom);
             
             outptr = (oarr->data + i*oarr->strides[0] +
                         k*oarr->strides[1]);
             *outptr = eta;
-            
         }
     }
     

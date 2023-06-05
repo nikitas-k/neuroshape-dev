@@ -318,12 +318,12 @@ def calc_volume_eigenmodes(nifti_input_filename, nifti_output_filename, output_e
     nib.save(img, nifti_output_filename)
 
     # remove all created temporary auxiliary files
-    # geo_file = nifti_input_filename + '.geo'
-    # tria_file = nifti_input_filename + '.vtk'
-    # if os.path.exists(geo_file):
-    #     os.remove(geo_file)
-    # if os.path.exists(tria_file):
-    #     os.remove(tria_file)
+    geo_file = nifti_input_filename + '.geo'
+    tria_file = nifti_input_filename + '.vtk'
+    if os.path.exists(geo_file):
+        os.remove(geo_file)
+    if os.path.exists(tria_file):
+        os.remove(tria_file)
 
 def main(raw_args=None):    
     parser = ArgumentParser(epilog="volume_eigenmodes.py -- A function to calculate the eigenmodes of an ROI volume. James Pang, Monash University, 2022 <james.pang1@monash.edu>")

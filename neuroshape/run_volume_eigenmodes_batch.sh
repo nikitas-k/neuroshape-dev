@@ -1,3 +1,54 @@
+#!/bin/bash
+
+#~ND~FORMAT~MARKDOWN~
+#~ND~START~
+#
+# # run_volume_eigenmodes_batch.sh
+#
+# ## Copyright Notice
+#
+# Copyright (C) 2023 Systems Neuroscience Group Newcastle
+#
+# ## Author(s)
+#
+# * Nikitas C. Koussis, School of Psychological Sciences,
+#   University of Newcastle
+#
+#
+# ## License
+#
+# See the [LICENSE](https://github.com/breakspear/blob/main/LICENSE) file
+#
+# ## Description:
+#
+# Example script for running the connectopic Laplacian python script
+# (connectopic_laplacian.py) over a directory of subjects
+#
+# ## Prerequisites
+#
+# ### Installed software
+#
+# * FSL
+# * FreeSurfer
+# * Gmsh
+#
+# ### Environment variables
+#
+# Should be set in script file pointed to by EnvironmentScript variable.
+# See setting of the EnvironmentScript variable in the main() function
+# below.
+#
+# * FSLDIR - main FSL installation directory
+# * FREESURFER_HOME - main FreeSurfer installation directory
+# * MRTRIX - main MRtrix3 installation directory
+# * PATH - must point to where MATLAB binary is located (Usually C://Program\ Files/
+#   MATLAB_<version>/MATLAB.exe or /usr/local/matlab<version>/bin/matlab)
+#
+# <!-- References -->
+# [neuroshape] : https://github.com/breakspear/neuroshape
+#
+#~ND~END~
+
 # Function: get_batch_options
 # Description
 #
@@ -185,7 +236,7 @@ main()
 	# Cycle through specified subjects
 	for Subject in $Subjlist ; do
 		echo $Subject
-
+        mkdir -p ${StudyFolder}/${Subject}
 		# Input Images
 
 		# Detect aseg.mgz images and build list of full paths
@@ -198,20 +249,34 @@ main()
             exit 1
         fi
 		segInputImage="${fs_subjects_dir}/${Subject}/mri/aseg.mgz"
-		segConverted="${StudyFolder}/${Subject}_aseg.nii.gz"
+		segConverted="${StudyFolder}/${Subject}/aseg.nii.gz"
 		echo "Converting Input Image : ${segInputImage} to ${segConverted}"
-		mrconvert ${segInputImage} ${segConverted} -quiet -force
-
+		#mrconvert ${segInputImage} ${segConverted} -quiet -force
+		
+		# Register segmentation image to MNI space
+		tkregister2 --mov ${fs_subjects_dir}/${Subject}/mri/brain.mgz --targ ${fs_subjects_dir}/${Subject}/mri/rawavg.mgz --reg register.native.dat --noedit --regheader --fslregout ${StudyFolder}/${Subject}/FS2FSL.mat
+        mri_vol2vol --mov ${fs_subjects_dir}/${Subject}/mri/brain.mgz --targ ${fs_subjects_dir}/${Subject}/mri/rawavg.mgz --regheader --o ${StudyFolder}/${Subject}/brainFSnat.nii
+        mrconvert ${fs_subjects_dir}/${Subject}/mri/brain.mgz ${StudyFolder}/${Subject}/brainFS.nii -quiet -force -nthreads 1
+        mri_vol2vol --mov ${segInputImage} --targ ${fs_subjects_dir}/${Subject}/mri/rawavg.mgz --regheader --o ${segConverted} --nearest --keep-precision
+		flirt -ref ${FSLDIR}/data/standard/MNI152_T1_2mm_brain -in ${StudyFolder}/${Subject}/brainFS -dof 12 -cost normmi -omat ${StudyFolder}/${Subject}/FS2MNI.mat
+		
+		mrconvert ${segConverted} ${StudyFolder}/${Subject}/parcstr.nii -strides +1,2,3 -force -quiet
+        mv ${StudyFolder}/${Subject}/parcstr.nii ${StudyFolder}/${Subject}/aseg.nii
+        convert_xfm -omat ${StudyFolder}/${Subject}/FSL2FS.mat -inverse ${StudyFolder}/${Subject}/FS2FSL.mat
+        flirt -ref ${StudyFolder}/${Subject}/brainFS.nii -in ${segConverted} -applyxfm -init F${StudyFolder}/${Subject}/SL2FS.mat -out ${StudyFolder}/${Subject}/aseg_FS
+        flirt -ref ${FSLDIR}/data/standard/MNI152_T1_2mm_brain.nii.gz -in ${StudyFolder}/${Subject}/aseg_FS -applyxfm -init ${StudyFolder}/${Subject}/FS2MNI.mat -out ${StudyFolder}/${Subject}/aseg_mni
+		
+		segConverted=${StudyFolder}/${Subject}/aseg_mni.nii.gz
 		# Extract label images for volume eigenmode calculation
 		for label in $labels_lh ; do
     		echo "Extracting label ${label} from FreeSurfer segmentation image ${segInputImages}"
-    		outputImage="${StudyFolder}/${Subject}_${label}_lh.nii.gz"
+    		outputImage="${StudyFolder}/${Subject}/${label}_lh.nii.gz"
         	echo "Output Image : ${outputImage}"
         	fslmaths ${segConverted} -thr ${label} -uthr ${label} -bin ${outputImage}
         done
         for label in $labels_rh ; do
             echo "Extracting label ${label} from FreeSurfer segmentation image ${segInputImages}"
-            outputImage="${StudyFolder}/${Subject}_${label}_rh.nii.gz"
+            outputImage="${StudyFolder}/${Subject}/${label}_rh.nii.gz"
             echo "Output Image : ${outputImage}"
             fslmaths ${segConverted} -thr ${label} -uthr ${label} -bin ${outputImage}
         done
@@ -228,11 +293,11 @@ main()
                 labels=$labels_rh
             fi
                 
-            first=${StudyFolder}/${Subject}_${labels:0:2}_${hemisphere}.nii.gz 
+            first=${StudyFolder}/${Subject}/${labels:0:2}_${hemisphere}.nii.gz 
             seg=""
             B=("${labels:2}")    
             for label in $B; do
-                seg+=" ${StudyFolder}/${Subject}_${label}_${hemisphere}.nii.gz"
+                seg+=" ${StudyFolder}/${Subject}/${label}_${hemisphere}.nii.gz"
             done
                        
             command_list="${first}"
@@ -241,7 +306,7 @@ main()
                 command_list="${command_list} -add ${image}"
             done
             
-            outputName=${StudyFolder}/${Subject}_${structure}_${hemisphere}
+            outputName=${StudyFolder}/${Subject}/${structure}_${hemisphere}
             echo "Command: fslmaths ${command_list} -bin ${outputName}"
             fslmaths ${command_list} -bin ${outputName}
             
@@ -265,7 +330,7 @@ main()
         
         # Clean up temporary label files
         echo "Cleaning up temporary files..."
-        forcleanup=`find -name "${Subject}_[0-9]*.nii.gz"`
+        forcleanup=`find -name "${StudyFolder}/${Subject}/[0-9]*.nii.gz"`
         forcleanup+=" ${segConverted}"
         rm -f ${forcleanup}
     done

@@ -29,18 +29,18 @@ from argparse import ArgumentParser
 from nilearn import image, masking
 from subprocess import Popen
 from neuroshape.eta import eta_squared
+from os.path import split
 
 os_path = dict(os.environ).get('PATH')
 
 global matlabpath
 path_list = os_path.split(sep=':')
 for item in path_list:
+    global matlabpath
     if 'matlab' in item:
         matlabpath = item
-        matlabpath += '/matlab'
     if 'MATLAB' in item:
         matlabpath = item
-        matlabpath += '/MATLAB'
     # else:
     #     raise RuntimeError("MATLAB is not installed or has not been sourced on the variable $PATH")
 
@@ -75,11 +75,12 @@ def smooth(input_filename, fwhm):
 
 def wishart(input_filename, mask_filename):
     # write matlab script
-    script_file = os.path.join(os.getcwd(), 'wishart_run.m')
+    script_file = os.path.join('/tmp', 'wishart_run.m')
+    folder, *_ = split(__file__)
     with open(script_file, 'w') as file:
         file.write(f"""
-addpath functions/wishart
-addpath functions
+addpath {folder}/functions/wishart
+addpath {folder}/functions
 
 DEMDT = 1;
 VN = 1;
@@ -176,9 +177,10 @@ def compute_similarity(img_input, img_roi, img_mask):
 
 def thresh(w, s):
     w_sparse = coo_matrix(w)
-    w_thr = minimum_spanning_tree(w_sparse)
-    w_thr = w_thr.toarray().astype(float)
-    binary = w_thr > 0.
+    tree = minimum_spanning_tree(w_sparse)
+    weight = np.max(tree)
+    w_thresh = w <= weight
+    binary = w_thresh > 0.
     s_thresh = np.zeros(s.shape)
     s_thresh[binary] = s[binary]
     s_thresh += s_thresh.T
@@ -199,7 +201,7 @@ def calc_LaplacianMatrix(s, num_gradients):
     print('Density of similarity graph needed to remain connected: {:.2f}%'.format(density))
     
     print('Computing Laplacian')
-    L = laplacian(s_thresh, normed=True)
+    L = laplacian(s_thresh)
     
     return L
     

@@ -5,7 +5,7 @@ The ``neuroshape`` toolbox is designed to run both functional and geometric eige
 Installation requirements
 -------------------------
 
-``neuroshape`` works with Python 3.7+ and utilizes the following dependencies:
+``neuroshape`` works with Python 3.8+ and utilizes the following dependencies:
 
 - nibabel (>=3.0)
 - nilearn (>=0.7)

@@ -1,3 +1,52 @@
+#!/bin/bash
+
+#~ND~FORMAT~MARKDOWN~
+#~ND~START~
+#
+# # run_surface_eigenmodes_batch.sh
+#
+# ## Copyright Notice
+#
+# Copyright (C) 2023 Systems Neuroscience Group Newcastle
+#
+# ## Author(s)
+#
+# * Nikitas C. Koussis, School of Psychological Sciences,
+#   University of Newcastle
+#
+#
+# ## License
+#
+# See the [LICENSE](https://github.com/breakspear/blob/main/LICENSE) file
+#
+# ## Description:
+#
+# Example script for running the surface eigenmodes python script 
+# (surface_eigenmodes.py) over a directory of subjects
+#
+# ## Prerequisites
+#
+# ### Installed software
+#
+# * FSL
+# * FreeSurfer
+# * MRtrix3
+#
+# ### Environment variables
+#
+# Should be set in script file pointed to by EnvironmentScript variable.
+# See setting of the EnvironmentScript variable in the main() function
+# below.
+#
+# * FSLDIR - main FSL installation directory
+# * FREESURFER_HOME - main FreeSurfer installation directory
+# * MRTRIX - main MRtrix3 installation directory
+# * PATH - must point to where MATLAB binary is located (Usually C://Program\ Files/
+#   MATLAB_<version>/MATLAB.exe or /usr/local/matlab<version>/bin/matlab)
+#
+# <!-- References -->
+# [neuroshape] : https://github.com/breakspear/neuroshape
+
 # Function: get_batch_options
 # Description
 #

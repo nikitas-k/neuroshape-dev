@@ -1,6 +1,6 @@
 .. image:: neuroshape_logo.png
 
-The ``neuroshape`` toolbox is designed to run both functional and geometric eigenmodes using the Connectopic Laplacian approach for functional gradients `Haak et al. (2018) <https://www.sciencedirect.com/science/article/pii/S1053811917305463>`_, and the Laplace-Beltrami Operator on a finite vertex mesh as built in `ShapeDNA <https://github.com/Deep-MI/LaPy/tree/main>`_ (see also `Reuter et al. (2006) <http://dx.doi.org/10.1016/j.cad.2005.10.011>`_ and `Wachinger et al. (2015) <http://dx.doi.org/10.1016/j.neuroimage.2015.01.032>`_).
+The ``neuroshape`` toolbox is designed to run both functional and geometric eigenmodes using the Connectopic Laplacian approach for resting-state functional gradients `Haak et al. (2018) <https://www.sciencedirect.com/science/article/pii/S1053811917305463>`_, our lab's approach (`Borne et al. (2023) <https://www.sciencedirect.com/science/article/pii/S1053811923001428>`_) to producing and analyzing task-driven gradients using psychophysiological interactions, and the Laplace-Beltrami Operator on a finite vertex mesh as built in `ShapeDNA <https://github.com/Deep-MI/LaPy/tree/main>`_ (see also `Reuter et al. (2006) <http://dx.doi.org/10.1016/j.cad.2005.10.011>`_ and `Wachinger et al. (2015) <http://dx.doi.org/10.1016/j.neuroimage.2015.01.032>`_).
 
 Installation requirements
 -------------------------

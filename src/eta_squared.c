@@ -49,121 +49,85 @@ static PyMethodDef EtaMethods[] = {
 
 static PyObject* eta_squared(PyObject* self, PyObject* args)
 {
-    PyArrayObject *arr, *oarr;
+    PyArrayObject* arr;
+    if (!PyArg_ParseTuple(args, "O!", &PyArray_Type, &arr))
+        return NULL;
 
-    if (!PyArg_ParseTuple(args, "O!", &PyArray_Type, &arr)) return NULL;
-    
-//     arr = (PyArrayObject *)
-//         PyArray_ContiguousFromObject(arg1, NPY_DOUBLE, 2, 2);
-//    if (arr == NULL) return NULL;
-    
-    int num_rows, num_cols;
-    num_rows = arr -> dimensions[0];
-    num_cols = arr -> dimensions[1];
-    npy_intp dims[2] = {num_rows,num_rows};
+    int num_rows = arr->dimensions[0];
+    int num_cols = arr->dimensions[1];
+    npy_intp dims[2] = {num_rows, num_rows};
     int nd = 2;
-    
-    oarr = (PyArrayObject *) PyArray_SimpleNew(nd, dims, NPY_DOUBLE);
-    import_array();
-        
-//    if (oarr == NULL) goto fail;
-    
-    /* code that makes use of arguments */
-    double *iptr=NULL, *jptr=NULL, *kptr=NULL, *iiptr=NULL, *outptr=NULL;
-    
-    npy_intp i,j,k;
-    
-    iptr = (double *)PyArray_DATA(arr);
-    iiptr = (double *)PyArray_DATA(arr);
-    jptr = (double *)PyArray_DATA(arr);
-    kptr = (double *)PyArray_DATA(arr);
-    outptr = (double *)PyArray_DATA(oarr);
-    
-    if (iptr == NULL) return NULL;
-    if (jptr == NULL) return NULL;
-    if (kptr == NULL) return NULL;
-    if (outptr == NULL) return NULL;
-    
-    double mu_bar;
-    double mu_1 = 0;
-    double vali, valk;
+
+    PyArrayObject* oarr = (PyArrayObject*)PyArray_SimpleNew(nd, dims, NPY_DOUBLE);
+    if (oarr == NULL)
+        return NULL;
+
+    double* data_ptr = (double*)PyArray_DATA(arr);
+    double* out_ptr = (double*)PyArray_DATA(oarr);
+
+    double mu_bar = 0.0;
+    double mu_1 = 0.0;
     int count = 0;
-    
-    /* Get mu_bar by taking mu over every pair */
-    for (i = 0; i < num_rows; i++){
-        for (k = 0; k< num_rows; k++){
-            for (j = 0; j < num_cols; j++){
-                iptr = (arr->data + i*arr->strides[0] +
-                    j*arr->strides[1]);
-                vali = iptr[0];
-                iiptr = (arr->data + k*arr->strides[0] +
-                    j*arr->strides[1]);
-                valk = iiptr[0];
-                
-                mu_1 += ((vali + valk) / 2);
+
+    // Calculate mu_bar
+    for (int i = 0; i < num_rows; i++) {
+        for (int k = 0; k < num_rows; k++) {
+            for (int j = 0; j < num_cols; j++) {
+                double vali = data_ptr[i * num_cols + j];
+                double valk = data_ptr[k * num_cols + j];
+                double mu = (vali + valk) / 2.0;
+                mu_1 += mu;
                 count++;
             }
         }
     }
-    mu_bar = (mu_1 / count);
-    
-    /* Main loop */
-    for (i = 0; i < num_rows; i++){    
-        for (k = 0; k < num_rows; k++){
-            double num = 0;
-            double denom = 0;
-            for (j = 0; j < num_cols; j++){
-                jptr = (arr->data + i*arr->strides[0] +
-                    j*arr->strides[1]);
-                vali = jptr[0];
-                kptr = (arr->data + k*arr->strides[0] +
-                    j*arr->strides[1]);
-                valk = kptr[0];
-                
-                double mu = ((vali + valk) / 2);
-                double powera = pow((vali - mu), (double)2);
-                double powerb = pow((valk - mu), (double)2);
-                
-                double powerax = pow((vali - mu_bar), (double)2);
-                double powerbx = pow((valk - mu_bar), (double)2);
-                
-                num += (powera + powerb);
-                denom += (powerax + powerbx);
+    mu_bar = mu_1 / count;
+
+    // Calculate eta-squared coefficients
+    for (int i = 0; i < num_rows; i++) {
+        for (int k = 0; k < num_rows; k++) {
+            double num = 0.0;
+            double denom = 0.0;
+            for (int j = 0; j < num_cols; j++) {
+                double vali = data_ptr[i * num_cols + j];
+                double valk = data_ptr[k * num_cols + j];
+                double mu = (vali + valk) / 2.0;
+                double diff_a = vali - mu;
+                double diff_b = valk - mu;
+                double powera = diff_a * diff_a;
+                double powerb = diff_b * diff_b;
+                double diff_bar_a = vali - mu_bar;
+                double diff_bar_b = valk - mu_bar;
+                double powerax = diff_bar_a * diff_bar_a;
+                double powerbx = diff_bar_b * diff_bar_b;
+                num += powera + powerb;
+                denom += powerax + powerbx;
             }
-            double eta = 1 - (num / denom);
-            
-            outptr = (oarr->data + i*oarr->strides[0] +
-                        k*oarr->strides[1]);
-            *outptr = eta;
+            double eta = 1.0 - (num / denom);
+            out_ptr[i * num_rows + k] = eta;
         }
     }
-    
-    Py_DECREF(outptr);
+
+    Py_DECREF(out_ptr);
     return PyArray_Return(oarr);
-    
-    fail:
-        Py_XDECREF(arr);
-#if NPY_API_VERSION >= 0x0000000c
-        PyArray_DiscardWritebackIfCopy(oarr);
-#endif
-        Py_XDECREF(oarr);
-        return NULL;
 }
 
-/* This initiates the module using the above definitions. */
 static struct PyModuleDef cModPyDem = {
     PyModuleDef_HEAD_INIT,
-    "neuroshape.eta", "Eta-squared 2-dimensional array calculation implementation in C",
+    "neuroshape.eta",
+    "Eta-squared 2-dimensional array calculation implementation in C",
     -1,
     EtaMethods
 };
 
-PyMODINIT_FUNC PyInit_eta(void) {
-    PyObject *module;
+PyMODINIT_FUNC PyInit_eta(void)
+{
+    PyObject* module;
     module = PyModule_Create(&cModPyDem);
-    if(module==NULL) return NULL;
-    /* IMPORTANT: this must be called */
+    if (module == NULL)
+        return NULL;
     import_array();
-    if (PyErr_Occurred()) return NULL;
+    if (PyErr_Occurred())
+        return NULL;
     return module;
 }

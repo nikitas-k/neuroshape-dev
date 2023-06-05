@@ -69,4 +69,4 @@ License
 
 This work is licensed under a BSD 3-Clause "New" or "Revised" License.
 
-Copyright (C) 2023 Systems Neuroscience Lab. Please read the full license `here <https://github.com/nikitas-k/neuroshape-dev/blob/main/LICENSE`_ before use.
+Copyright (C) 2023 Systems Neuroscience Lab. Please read the full license `here <https://github.com/nikitas-k/neuroshape-dev/blob/main/LICENSE>`_ before use.

@@ -18,7 +18,7 @@ Installation requirements
 
 **VERY IMPORTANT:**
 
-In order to use much of the functionality of this code, including ``volume_eigenmodes.py`` and ``run_volume_eigenmodes_batch.sh``, you must:
+In order to use much of the functionality of this code, you must:
 
 1. Install `FreeSurfer <https://surfer.nmr.mgh.harvard.edu/fswiki/DownloadAndInstall>`_ and source it on your OS path.
 2. Install `Connectome Workbench <https://www.humanconnectome.org/software/get-connectome-workbench>`_ and source it on your OS path.
@@ -58,8 +58,6 @@ This will install the module in your environment's (or ``/usr/local/python/``) s
 
 We are working on implementing full documentation for all extensions and tools in this package. As the project is in a rapid development stage, we appreciate your patience.
 
-.. _installation:
-
 Citation
 --------
 
@@ -71,30 +69,4 @@ License
 
 This work is licensed under a BSD 3-Clause "New" or "Revised" License.
 
-Copyright 2023 Systems Neuroscience Lab
-
-Redistribution and use in source and binary forms, with or without 
-modification, are permitted provided that the following conditions are met:
-
-1. Redistributions of source code must retain the above copyright notice, 
-this list of conditions and the following disclaimer.
-
-2. Redistributions in binary form must reproduce the above copyright notice, 
-this list of conditions and the following disclaimer in the documentation 
-and/or other materials provided with the distribution.
-
-3. Neither the name of the copyright holder nor the names of its contributors 
-may be used to endorse or promote products derived from this software without 
-specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS “AS IS” 
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE 
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE 
-ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE 
-LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR 
-CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF 
-SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR 
-BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
-WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE 
-OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN 
-IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+Copyright (C) 2023 Systems Neuroscience Lab. Please read the full license `here <https://github.com/nikitas-k/neuroshape-dev/blob/main/LICENSE`_ before use.

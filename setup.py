@@ -9,6 +9,9 @@ import numpy
 eta = Extension('neuroshape.eta', sources=['src/eta_squared.c'],
                           include_dirs=[numpy.get_include()])
 
+glmfit = Extension('neuroshape.glm', sources=['src/glmfit.c'],
+                   include_dirs=[numpy.get_include()])
+
 # run the setup
 setup(name='neuroshape',
       version='0.0.1',
@@ -17,4 +20,4 @@ setup(name='neuroshape',
       author_email='nikitas.koussis@gmail.com',
       url='https://github.com/nikitas-k/neuroshape-dev',
       packages=['neuroshape'],
-      ext_modules=[eta])
+      ext_modules=[eta, glmfit])

@@ -56,6 +56,8 @@ This will install the module in your environment's (or ``/usr/local/python/``) s
   from neuroshape.eta import eta_squared
   similarity = eta_squared(matrix_2d)
 
+We are working on implementing full documentation for all extensions and tools in this package. As the project is in a rapid development stage, we appreciate your patience.
+
 .. _installation:
 
 Citation

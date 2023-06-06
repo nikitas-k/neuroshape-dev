@@ -47,20 +47,33 @@ static PyMethodDef EtaMethods[] = {
  * input args from Python.
  */
 
+
 static PyObject* eta_squared(PyObject* self, PyObject* args)
 {
     PyArrayObject* arr;
     if (!PyArg_ParseTuple(args, "O!", &PyArray_Type, &arr))
         return NULL;
-
+    
     int num_rows = arr->dimensions[0];
     int num_cols = arr->dimensions[1];
+    /* check number of dims and whether data is in correct format */
+    if ( num_rows < num_cols ) {
+        printf('ERROR: Number of observations must exceed number of features (is your data transposed?)');
+        return NULL;    
+    }
+    npy_intp nd = PyArray_NDIM(arr);
+    if ( nd != 2 ) {
+        printf('ERROR: Input must be a 2-dimensional matrix');
+        return NULL;    
+    }
+    
     npy_intp dims[2] = {num_rows, num_rows};
-    int nd = 2;
 
     PyArrayObject* oarr = (PyArrayObject*)PyArray_SimpleNew(nd, dims, NPY_DOUBLE);
     if (oarr == NULL)
         return NULL;
+    
+    import_array();
 
     double* data_ptr = (double*)PyArray_DATA(arr);
     double* out_ptr = (double*)PyArray_DATA(oarr);
@@ -68,13 +81,15 @@ static PyObject* eta_squared(PyObject* self, PyObject* args)
     double mu_bar = 0.0;
     double mu_1 = 0.0;
     int count = 0;
+    
+    npy_intp i,j,k;
 
     // Calculate mu_bar
-    for (int i = 0; i < num_rows; i++) {
-        for (int k = 0; k < num_rows; k++) {
-            for (int j = 0; j < num_cols; j++) {
-                double vali = data_ptr[i * num_cols + j];
-                double valk = data_ptr[k * num_cols + j];
+    for (i = 0; i < num_rows; i++) {
+        for (k = 0; k < num_rows; k++) {
+            for (j = 0; j < num_cols; j++) {
+                double vali = data_ptr[i + j];
+                double valk = data_ptr[k + j];
                 double mu = (vali + valk) / 2.0;
                 mu_1 += mu;
                 count++;
@@ -84,13 +99,13 @@ static PyObject* eta_squared(PyObject* self, PyObject* args)
     mu_bar = mu_1 / count;
 
     // Calculate eta-squared coefficients
-    for (int i = 0; i < num_rows; i++) {
-        for (int k = 0; k < num_rows; k++) {
+    for (i = 0; i < num_rows; i++) {
+        for (k = 0; k < num_rows; k++) {
             double num = 0.0;
             double denom = 0.0;
-            for (int j = 0; j < num_cols; j++) {
-                double vali = data_ptr[i * num_cols + j];
-                double valk = data_ptr[k * num_cols + j];
+            for (j = 0; j < num_cols; j++) {
+                double vali = data_ptr[i + j];
+                double valk = data_ptr[k + j];
                 double mu = (vali + valk) / 2.0;
                 double diff_a = vali - mu;
                 double diff_b = valk - mu;
@@ -104,7 +119,7 @@ static PyObject* eta_squared(PyObject* self, PyObject* args)
                 denom += powerax + powerbx;
             }
             double eta = 1.0 - (num / denom);
-            out_ptr[i * num_rows + k] = eta;
+            out_ptr[i + k] = eta;
         }
     }
 

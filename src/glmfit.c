@@ -192,19 +192,19 @@ static PyObject* glmfit(PyObject* self, PyObject* args)
 
 /* Module method table */
 static PyMethodDef GLMMethods[] = {
-    {"glmfit", (PyCFunction)glmfit, METH_VARARGS, "Compute beta coefficients using glmfit."},
+    {"glmfit", glmfit, METH_VARARGS, "Compute beta coefficients using glmfit."},
     {NULL, NULL, 0, NULL} /* Sentinel */
 };
 
 static struct PyModuleDef moduledef = {
     PyModuleDef_HEAD_INIT,
-    "glmfit",
-    NULL,
+    "neuroshape._stats",
+    "Backend C statistical analyses.",
     -1,
     GLMMethods
 };
 
-PyMODINIT_FUNC PyInit_glmfit(void)
+PyMODINIT_FUNC PyInit__stats(void)
 {
     PyObject *m;
     

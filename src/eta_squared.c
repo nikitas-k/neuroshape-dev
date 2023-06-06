@@ -72,15 +72,16 @@ static PyObject* eta_squared(PyObject* self, PyObject* args)
     PyArrayObject* oarr = (PyArrayObject*)PyArray_SimpleNew(nd, dims, NPY_DOUBLE);
     if (oarr == NULL)
         return NULL;
-    
-    import_array();
 
-    double* data_ptr = (double*)PyArray_DATA(arr);
-    double* out_ptr = (double*)PyArray_DATA(oarr);
+    double* data_ptr = PyArray_DATA(arr);
+    double* out_ptr = PyArray_DATA(oarr);
 
     double mu_bar = 0.0;
     double mu_1 = 0.0;
     int count = 0;
+    
+    npy_intp row_stride = PyArray_STRIDE(arr, 0) / sizeof(double);
+    npy_intp col_stride = PyArray_STRIDE(arr, 1) / sizeof(double);
     
     npy_intp i,j,k;
 
@@ -88,8 +89,8 @@ static PyObject* eta_squared(PyObject* self, PyObject* args)
     for (i = 0; i < num_rows; i++) {
         for (k = 0; k < num_rows; k++) {
             for (j = 0; j < num_cols; j++) {
-                double vali = data_ptr[i + j];
-                double valk = data_ptr[k + j];
+                double vali = data_ptr[i * row_stride + j * col_stride];
+                double valk = data_ptr[k * row_stride + j * col_stride];
                 double mu = (vali + valk) / 2.0;
                 mu_1 += mu;
                 count++;
@@ -104,8 +105,8 @@ static PyObject* eta_squared(PyObject* self, PyObject* args)
             double num = 0.0;
             double denom = 0.0;
             for (j = 0; j < num_cols; j++) {
-                double vali = data_ptr[i + j];
-                double valk = data_ptr[k + j];
+                double vali = data_ptr[i * row_stride + j * col_stride];
+                double valk = data_ptr[k * row_stride + j * col_stride];
                 double mu = (vali + valk) / 2.0;
                 double diff_a = vali - mu;
                 double diff_b = valk - mu;
@@ -118,8 +119,14 @@ static PyObject* eta_squared(PyObject* self, PyObject* args)
                 num += powera + powerb;
                 denom += powerax + powerbx;
             }
-            double eta = 1.0 - (num / denom);
-            out_ptr[i + k] = eta;
+            if ( denom == 0.0 ){
+                double eta = 0.0;
+                out_ptr[i*num_rows + k] = eta;
+            } else {
+                double eta = 1.0 - (num / denom);
+                out_ptr[i*num_rows + k] = eta;
+            }
+            
         }
     }
 

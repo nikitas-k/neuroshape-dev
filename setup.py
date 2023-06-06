@@ -9,10 +9,10 @@ import numpy
 eta = Extension('neuroshape.eta', sources=['src/eta_squared.c'],
                           include_dirs=[numpy.get_include()])
 
-glmfit = Extension('neuroshape.stats', sources=['src/glmfit.c'],
+glmfit = Extension('neuroshape._stats', sources=['src/glmfit.c'],
                    include_dirs=[numpy.get_include()])
 
-euler = Extension('neuroshape.stats', sources=['src/euler_threshold.c'],
+euler = Extension('neuroshape.euler', sources=['src/euler_threshold.c'],
                   include_dirs=[numpy.get_include()])
 
 # run the setup

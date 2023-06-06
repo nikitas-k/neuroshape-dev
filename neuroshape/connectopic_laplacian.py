@@ -20,16 +20,15 @@ import numpy as np
 from scipy.signal import detrend
 from scipy.ndimage import gaussian_filter
 from scipy.spatial.distance import pdist, squareform
-from scipy.sparse.csgraph import minimum_spanning_tree, laplacian
-from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import laplacian
 from numpy.linalg import svd
-from numpy.linalg import eig
+from numpy.linalg import eigh
 import os
 from argparse import ArgumentParser
 from nilearn import image, masking
 from subprocess import Popen
 from neuroshape.eta import eta_squared
-from neuroshape._stats import euler_threshold
+from neuroshape.euler import euler_threshold
 from os.path import split
 
 os_path = dict(os.environ).get('PATH')
@@ -178,7 +177,7 @@ def compute_similarity(img_input, img_roi, img_mask):
 
 def thresh(w, s):
     # compute optimal threshold based on euler characteristic
-    threshold = euler_threshold(w)
+    threshold = euler_threshold(w, 256)
     w_thresh = w <= threshold
     binary = w_thresh > 0.
     s_thresh = np.zeros_like(s)
@@ -194,7 +193,7 @@ def calc_LaplacianMatrix(s, num_gradients):
     w = squareform(pdist(s))
     
     # threshold matrix
-    print('Thresholding to minimum density needed for graph to remain connected')
+    print('Thresholding using maximum Euler characteristic at 256 resels')
     s_thresh, density = thresh(w, s)
     
     print('Density of similarity graph needed to remain connected: {:.2f}%'.format(density))
@@ -209,9 +208,13 @@ def calc_gradients(img_input, img_roi, img_mask, num_gradients=2):
     
     L = calc_LaplacianMatrix(s, num_gradients)
     
-    evals, egrads = eig(L)
+    evals, egrads = eigh(L)
     
-    # shift values up to zero/positive only
+    # Z-transform eigenvectors
+    for i in range(egrads.shape[1]):
+        egrads[:,i] = (egrads[:,i] - np.mean(egrads[:,i]))/np.std(egrads[:,i])
+    
+    # make positive
     egrads = egrads - np.min(egrads)
     
     # exclude the first eigenvalue, return only the non-zero `num_gradients` last gradients
@@ -220,8 +223,60 @@ def calc_gradients(img_input, img_roi, img_mask, num_gradients=2):
     
     return evals, egrads
 
+def cortical_projection(img_input, img_roi, img_mask, egrads):
+    data_msk = masking.apply_mask(img_input, img_mask)
+    data_msk = normalize_data(data_msk)
+    input_img = masking.unmask(data_msk, img_mask)
+    
+    data_ins = masking.apply_mask(input_img, img_roi)
+    roi_index = [data_msk == data_ins]
+    
+    T = data_ins.shape[0]
+    
+    u, s, v = svd(data_msk, full_matrices=False)
+    
+    a = u * s
+    a = a[:,:-1]
+    
+    a = normalize_data(a)
+        
+    c = np.matmul(data_ins.T, a)
+    c = np.divide(c, T)
+    
+    cc = np.hstack((c, np.zeros(c.shape[0]))) * v.T
+    
+    index_max_cc = find_roi_index(cc, data_ins, roi_index)
+    
+    ind_msk = np.where(data_msk > 0.)
+    eigvec_proj = np.zeros((img_mask.shape[0], img_mask.shape[1], img_mask.shape[2], egrads.shape[1]))
+    
+    for grad in range(egrads.shape[1]):
+        eig = egrads[:, grad]
+        eig_proj = eig[index_max_cc]
+        xx, yy, zz = np.unravel_index(ind_msk, img_mask.shape)
+        for i in data_msk.shape[0]:
+            if not np.in1d(ind_msk, roi_index):
+                eigvec_proj[xx[i], yy[i], zz[i], grad] = eig_proj[i]
+    
+    return eigvec_proj
+            
+    
+def find_roi_index(cc, roi_data, roi_index):
+    print("Finding cortex-to-roi projection by maximum correlation")
+    
+    max_cc = np.max(cc[roi_index])
+    index_max_cc = np.zeros(max_cc.shape[0])
+    for i in range(max_cc.shape[0]):
+        idx = np.where(cc[:,i] == max_cc[i])
+        if idx.shape[0] == 1:
+            index_max_cc[i] = idx
+        else:
+            index_max_cc[i] = idx[0]
+    
+    return index_max_cc
 
-def connectopic_laplacian(data_input_filename, data_roi_filename, mask_filename, data_output_filename, output_eval_filename, output_grad_filename, num_gradients=2, fwhm=None, filtering=False, figures=True):
+
+def connectopic_laplacian(data_input_filename, data_roi_filename, mask_filename, data_output_filename, output_eval_filename, output_grad_filename, num_gradients=2, fwhm=None, filtering=False, figures=False, cortical=False):
     """
     Main function to calculate the connectopic Laplacian gradients of an ROI volume in NIFTI format.
 
@@ -289,6 +344,17 @@ def connectopic_laplacian(data_input_filename, data_roi_filename, mask_filename,
     if output_grad_filename:
         print('Saving output gradients file to {}'.format(output_grad_filename))
         np.savetxt(output_grad_filename, egrads)
+        
+    if cortical is True:
+        print('Computing cortical projection')
+        eigvec_proj = cortical_projection(img_input, img_roi, img_mask, egrads)
+        cort_img = nib.Nifti1Image(eigvec_proj, img_mask.affine, header=img_mask.header)
+        cort_filename = data_output_filename.replace('.nii.gz','_cortical_projection.nii.gz')
+        print('Saving cortical projection file to {}'.cort_filename)
+        
+        nib.save(cort_img, cort_filename)
+        
+        
     
     # save figures TODO
     
@@ -311,7 +377,8 @@ def main(raw_args=None):
     parser.add_argument("-N", dest="num_gradients", default=2, help="Number of gradients to be calculated, default=2", metavar="2")
     parser.add_argument("--smoothing", dest="smoothing",default=None, help="Option whether to perform smoothing and what FWHM to perform smoothing", metavar="6")
     parser.add_argument("--filter", dest="filtering", action='store_true', default=False, help="Option whether to perform Wishart filtering, INITIALIZES MATLAB SUBROUTINE. REQUIRES MATLAB 2017b OR GREATER")
-    parser.add_argument("--output_figures", dest="figures", default=False, help="Option whether to output orthographic figures of gradients", metavar="True")
+    parser.add_argument("--output_figures", dest="figures", default=False, help="Option whether to output orthographic figures of gradients")
+    parser.add_argument("--cortical", action='store_true', default=False, help="Option whether to output cortical projections of gradients")
     
     #-----------------   Parsing mandatory inputs from terminal:   ----------------
     args = parser.parse_args()
@@ -325,10 +392,11 @@ def main(raw_args=None):
     fwhm                   = args.smoothing
     filtering              = args.filtering
     figures                = args.figures
+    cortical               = args.cortical
     #-------------------------------------------------------------------------------
     
     print("")
-    print("####################### BASIC USAGE ######################")
+    print("####################### USUAL USAGE ######################")
     print("")
     print("!/bin/bash")
     print('$ data_input_filename=fmri_input.nii.gz \ ')
@@ -337,7 +405,7 @@ def main(raw_args=None):
     print('$ data_output_filename=gradients.nii.gz \ ')
     print('$ num_gradients=20 \ ')
     print('$ fwhm=6 \ ')
-    print('$ python connectopic_laplacian.py ${data_input_filename} ${data_roi_filename} ${mask_filename} ${data_output_filename} -N ${num_gradients} --smoothing ${fwhm} --filter ')
+    print('$ python connectopic_laplacian.py ${data_input_filename} ${data_roi_filename} ${mask_filename} ${data_output_filename} -N ${num_gradients} --smoothing ${fwhm} --filter --cortical')
     print("")
     print('########################### RUN ##########################')
     print("")
@@ -382,6 +450,11 @@ def main(raw_args=None):
         # make sure matlab is installed and on the PATH
     else:
         print('Not performing filtering')
+        
+    if cortical is True:
+        print('Performing cortical projection')
+    else:
+        print('Not performing cortical projection')
         
     ### TODO FIGURES ###
     
@@ -451,7 +524,7 @@ def main(raw_args=None):
     
     print('Inputs OK')
     
-    connectopic_laplacian(data_input_filename, data_roi_filename, mask_filename, data_output_filename, output_eval_filename, output_grad_filename, num_gradients, fwhm, filtering, figures)
+    connectopic_laplacian(data_input_filename, data_roi_filename, mask_filename, data_output_filename, output_eval_filename, output_grad_filename, num_gradients, fwhm, filtering, figures, cortical)
     
 if __name__ == '__main__':
     

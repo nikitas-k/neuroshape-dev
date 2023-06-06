@@ -29,6 +29,7 @@ from argparse import ArgumentParser
 from nilearn import image, masking
 from subprocess import Popen
 from neuroshape.eta import eta_squared
+from neuroshape._stats import euler_threshold
 from os.path import split
 
 os_path = dict(os.environ).get('PATH')
@@ -176,14 +177,12 @@ def compute_similarity(img_input, img_roi, img_mask):
     return s
 
 def thresh(w, s):
-    w_sparse = coo_matrix(w)
-    tree = minimum_spanning_tree(w_sparse)
-    weight = np.max(tree)
-    w_thresh = w <= weight
+    # compute optimal threshold based on euler characteristic
+    threshold = euler_threshold(w)
+    w_thresh = w <= threshold
     binary = w_thresh > 0.
-    s_thresh = np.zeros(s.shape)
+    s_thresh = np.zeros_like(s)
     s_thresh[binary] = s[binary]
-    s_thresh += s_thresh.T
     n_edges = np.sum(np.size(s_thresh > 0.))
     n_nodes = s_thresh.shape
     density = 2.0*n_edges / np.prod(n_nodes)

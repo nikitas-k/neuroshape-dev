@@ -66,13 +66,13 @@ static PyMethodDef EulerMethods[] = {
 
 static struct PyModuleDef moduledef = {
     PyModuleDef_HEAD_INIT,
-    "neuroshape._stats",
+    "neuroshape.stats",
     "Backend C statistical analyses.",
     -1,
     EulerMethods
 };
 
-PyMODINIT_FUNC PyInit__stats(void)
+PyMODINIT_FUNC PyInit_stats(void)
 {
     PyObject *m;
     

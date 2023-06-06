@@ -10,7 +10,7 @@
 #include <stdio.h>
 
 /* Function to perform LU decomposition */
-static int luDecomposition(double* A, int n, int* pivot)
+int luDecomposition(double* A, int n, int* pivot)
 {
     for (int i = 0; i < n; i++) {
         pivot[i] = i;
@@ -59,7 +59,7 @@ static int luDecomposition(double* A, int n, int* pivot)
 }
 
 /* Function to solve a linear system using LU decomposition */
-static void luSolve(double* LU, int* pivot, double* b, int n, double* x)
+void luSolve(double* LU, int* pivot, double* b, int n, double* x)
 {
     for (int i = 0; i < n; i++) {
         x[i] = b[pivot[i]];

@@ -73,13 +73,15 @@ def estimate_fwhm(image):
     row_profile = image[max_row, :]
     col_profile = image[:, max_col]
     
+    options = {'maxfev' : np.prod(image.shape)}
+    
     # Fit a gaussian curve to the row profile
     row_x = np.arange(len(row_profile))
-    row_params, _ = optimize.curve_fit(gaussian, row_x, row_profile, p0=[max_val, max_col, 1])
+    row_params, _ = optimize.curve_fit(gaussian, row_x, row_profile, p0=[max_val, max_col, 1], **options)
     
     # Fit a gaussian curve to the column profile
     col_x = np.arange(len(col_profile))
-    col_params, _ = optimize.curve_fit(gaussian, col_x, col_profile, p0=[max_val, max_row, 1])
+    col_params, _ = optimize.curve_fit(gaussian, col_x, col_profile, p0=[max_val, max_row, 1], **options)
     
     # Calculate the FWHM as 2.355 times the std dev of the Gaussian
     row_fwhm = 2.355 * row_params[2]

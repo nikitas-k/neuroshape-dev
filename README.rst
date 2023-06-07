@@ -37,17 +37,13 @@ The MATLAB scripts in ``neuroshape/functions/wishart`` were sourced from the `HC
 Installation
 ------------
 
-We have made it easy to download from source and install the dependencies automatically through a ``conda`` environment file (`install and initialize conda first <https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html>`_):
+After installing the above dependencies, install the neuroshape toolbox with:
 
 .. code-block:: bash
   
-  $ git clone https://github.com/breakspear/neuroshape
-  $ cd neuroshape
-  $ conda env create -f environment.yml
+  $ pip install neuroshape
 
-To install scikit-sparse, however, as mentioned above, you will have to `follow their instructions first to install the libraries they depend on <https://github.com/scikit-sparse/scikit-sparse>`_. Come back here when you've done that, then type the above code into a terminal. This will "automatically" (tested and working on MacOS Big Sur v11.6 and MacOS Catalina 10.15.7) download and install the dependencies in an environment called ``neuroshape`` (unless this already exists somehow, in which case you will have to specify your own environment name with ``conda env create -f environment.yml -n myenvironment``).  After downloading the dependencies, several C extensions must be built from source to use:
-
-.. code-block:: bash
+You can also compile from source (and install the dependencies automatically):
 
   $ git clone https://github.com/breakspear/neuroshape
   $ cd neuroshape

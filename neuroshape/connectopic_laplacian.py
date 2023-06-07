@@ -30,7 +30,6 @@ from subprocess import Popen
 from neuroshape.eta import eta_squared
 from neuroshape.euler import euler_threshold
 from os.path import split
-from neuroshape.utils.geometry import estimate_fwhm, resel_count
 
 os_path = dict(os.environ).get('PATH')
 
@@ -142,8 +141,8 @@ mat2nii(new_data, [folder, '/', basename, '_filtered.nii'], size(new_data), 32, 
     return output_filename
 
 def normalize_data(data):
-    data_normalized = detrend(data, type='constant')
-    data_normalized = data_normalized/np.linalg.norm(data_normalized, ord=np.inf)
+    data_normalized = np.subtract(data, np.mean(data, axis=0))
+    data_normalized = np.divide(data_normalized, np.std(data_normalized, axis=0))
     
     return data_normalized
 
@@ -158,17 +157,17 @@ def compute_similarity(img_input, img_roi, img_mask):
     T = data_ins.shape[0]
     
     print('Running singular value decomposition on input timeseries')
-    u, s, _ = svd(data_msk, full_matrices=False)
+    U, S, _ = svd(data_msk, full_matrices=False)
     
-    a = u * s
-    a = a[:,:-1]
+    a = U.dot(np.diag(S))
+    a = a[:, :-1]
     
     a = normalize_data(a)
         
     print('Computing similarity matrix by eta squared coefficient')
         
-    c = np.matmul(data_ins.T, a)
-    c = np.divide(c, T)
+    c = data_ins.T.dot(a)
+    c = c / T
     zpc = np.arctanh(c)
     zpc = zpc[:,np.all(~np.isnan(zpc), axis=0)]
     
@@ -177,10 +176,10 @@ def compute_similarity(img_input, img_roi, img_mask):
     return smat
 
 def thresh(w, s):
-    # find FWHM of matrix
-    fwhm = estimate_fwhm(w)
-    # calculate resel count using FWHM
-    num_resels = resel_count(w, fwhm)
+    # # find FWHM of matrix
+    # fwhm = estimate_fwhm(w)
+    # # calculate resel count using FWHM
+    num_resels = 256 #resel_count(w, fwhm) DO 256 FOR NOW
     # compute optimal threshold based on euler characteristic
     threshold = euler_threshold(w, num_resels)
     w_thresh = w <= threshold

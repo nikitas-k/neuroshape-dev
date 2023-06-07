@@ -23,8 +23,8 @@ In order to use much of the functionality of this code, you must:
 1. Install `FreeSurfer <https://surfer.nmr.mgh.harvard.edu/fswiki/DownloadAndInstall>`_ and source it on your OS path.
 2. Install `Connectome Workbench <https://www.humanconnectome.org/software/get-connectome-workbench>`_ and source it on your OS path.
 3. Install `Gmsh <https://gmsh.info/>`_ and source it on your OS path.
-4. Install `MRtrix3 <https://github.com/MRtrix3/mrtrix3>`_ and both source the ``<MRtrix3 installation directory>/bin`` folder on your OS path.
-5. run ``export MRTRIX=<MRtrix3 installation directory>``.
+4. Install `MRtrix3 <https://github.com/MRtrix3/mrtrix3>`_ and source the ``<MRtrix3 installation directory>/bin`` folder on your OS path.
+5. Run ``export MRTRIX=<MRtrix3 installation directory>``.
 6. Source MATLAB on your OS path.
 7. Install `scikit-sparse's libraries <https://github.com/scikit-sparse/scikit-sparse>`_. Follow the installation process over there first.
 

@@ -45,6 +45,8 @@ After installing the above dependencies, install the neuroshape toolbox with:
 
 You can also compile from source (and install the dependencies automatically):
 
+.. code-block:: bash
+
   $ git clone https://github.com/breakspear/neuroshape
   $ cd neuroshape
   $ conda env create -f environment.yml

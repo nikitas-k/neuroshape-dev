@@ -42,7 +42,7 @@ We have made it easy to download from source and install the dependencies automa
   cd neuroshape
   conda env create -f environment.yml
 
-This will "automatically" (tested and working on MacOS Big Sur v11.6 and MacOS Catalina 10.15.7) download and install the dependencies in an environment called ``neuroshape`` (unless this already exists somehow, in which case you will have to specify your own environment name with ``conda env create -f environment.yml -n myenvironment``).  After downloading the dependencies, several C extensions must be built from source to use:
+To install scikit-sparse, however, you will have to `follow their instructions first to install the libraries they depend on <https://github.com/scikit-sparse/scikit-sparse>`_. Come back here when you've done that, then type the above code into a terminal. This will "automatically" (tested and working on MacOS Big Sur v11.6 and MacOS Catalina 10.15.7) download and install the dependencies in an environment called ``neuroshape`` (unless this already exists somehow, in which case you will have to specify your own environment name with ``conda env create -f environment.yml -n myenvironment``).  After downloading the dependencies, several C extensions must be built from source to use:
 
 .. code-block:: bash
 

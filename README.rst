@@ -39,19 +39,19 @@ We have made it easy to download from source and install the dependencies automa
 
 .. code-block:: bash
   
-  git clone https://github.com/breakspear/neuroshape
-  cd neuroshape
-  conda env create -f environment.yml
+  $ git clone https://github.com/breakspear/neuroshape
+  $ cd neuroshape
+  $ conda env create -f environment.yml
 
 To install scikit-sparse, however, as mentioned above, you will have to `follow their instructions first to install the libraries they depend on <https://github.com/scikit-sparse/scikit-sparse>`_. Come back here when you've done that, then type the above code into a terminal. This will "automatically" (tested and working on MacOS Big Sur v11.6 and MacOS Catalina 10.15.7) download and install the dependencies in an environment called ``neuroshape`` (unless this already exists somehow, in which case you will have to specify your own environment name with ``conda env create -f environment.yml -n myenvironment``).  After downloading the dependencies, several C extensions must be built from source to use:
 
 .. code-block:: bash
 
-  git clone https://github.com/breakspear/neuroshape
-  cd neuroshape
-  conda env create -f environment.yml
-  python setup.py build
-  python setup.py install
+  $ git clone https://github.com/breakspear/neuroshape
+  $ cd neuroshape
+  $ conda env create -f environment.yml
+  $ python setup.py build
+  $ python setup.py install
 
 NOTE: The above must be performed in that order, otherwise the setup won't run properly. If you don't wish to initialize a whole new environment (or you don't use ``conda``), install the dependencies separately and forgo the ``conda env create`` step. Either way, the above will install the module in your environment's (or ``/usr/local/python/``) site-packages directory under the package ``neuroshape``. You can then import the extensions into your own code, e.g.:
 

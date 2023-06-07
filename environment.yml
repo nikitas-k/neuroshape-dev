@@ -248,7 +248,6 @@ dependencies:
       - looseversion==1.2.0
       - networkx==3.1
       - neuromaps==0.0.4
-      - neuroshape==0.0.3
       - nibabel==5.1.0
       - nilearn==0.10.1
       - nipype==1.8.6

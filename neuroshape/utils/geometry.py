@@ -4,6 +4,7 @@ from neuroshape.utils.checks import is_string_like
 from lapy import TriaMesh
 import warnings
 from collections import OrderedDict
+import scipy.optimize as optimize
 
 #gmsh.initialize()
 
@@ -59,6 +60,38 @@ def combine_geometry(in_file, label_values):
     
     return tria
 
+def gaussian(x, amplitude, mean, stddev):
+    return amplitude * np.exp(- ((x - mean) ** 2) / (2 * (stddev ** 2)))
+
+def calculate_fwhm(image):
+    # Find the maximum value and its position in the image
+    max_val = np.max(image)
+    max_pos = np.argmax(image)
+    max_row, max_col = np.unravel_index(max_pos, image.shape)
+    
+    # Create a 1d profile along the maximum row and column
+    row_profile = image[max_row, :]
+    col_profile = image[:, max_col]
+    
+    # Fit a gaussian curve to the row profile
+    row_x = np.arange(len(row_profile))
+    row_params, _ = optimize.curve_fit(gaussian, row_x, row_profile, p0=[max_val, max_col, 1])
+    
+    # Fit a gaussian curve to the column profile
+    col_x = np.arange(len(col_profile))
+    col_params, _ = optimize.curve_fit(gaussian, col_x, col_profile, p0=[max_val, max_row, 1])
+    
+    # Calculate the FWHM as 2.355 times the std dev of the Gaussian
+    row_fwhm = 2.355 * row_params[2]
+    col_fwhm = 2.355 * col_params[2]
+    
+    # take the average
+    fwhm = (row_fwhm + col_fwhm) / 2
+    
+    return fwhm
+    
+    
+    
 # def write_geometry(model, outfile):
 #     if not is_string_like(outfile):
 #         return ValueError('incorrect format for filename output')

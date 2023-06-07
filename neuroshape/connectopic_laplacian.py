@@ -211,8 +211,7 @@ def calc_gradients(img_input, img_roi, img_mask, num_gradients=2):
     evals, egrads = eigh(L)
     
     # Z-transform eigenvectors
-    for i in range(egrads.shape[1]):
-        egrads[:,i] = (egrads[:,i] - np.mean(egrads[:,i]))/np.std(egrads[:,i])
+    egrads = (egrads - np.mean(egrads))/np.std(egrads)
     
     # make positive
     egrads = egrads - np.min(egrads)

@@ -34,22 +34,25 @@ The MATLAB scripts in ``neuroshape/functions/wishart`` were sourced from the `HC
 Installation
 ------------
 
-Download from source:
+We have made it easy to download from source and install the dependencies automatically through a ``conda`` environment file (`install and initialize conda first <https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html>`_):
 
 .. code-block:: bash
   
   git clone https://github.com/breakspear/neuroshape
+  cd neuroshape
+  conda env create -f environment.yml
 
-Additionally, as several C extensions must be built from source to use, install them with:
+This will "automatically" (tested and working on MacOS Big Sur v11.6 and MacOS Catalina 10.15.7, we cannot guarantee it will work on yours) download and install the dependencies in an environment called ``neuroshape`` (unless this already exists somehow, in which case you will have to specify your own environment name with ``conda env create -f environment.yml -n myenvironment``).  After downloading the dependencies, several C extensions must be built from source to use:
 
 .. code-block:: bash
 
   git clone https://github.com/breakspear/neuroshape
   cd neuroshape
+  conda env create -f environment.yml
   python setup.py build
   python setup.py install
 
-This will install the module in your environment's (or ``/usr/local/python/``) site-packages directory. You can then import the extension into your own code:
+NOTE: The above must be performed in that order, otherwise the setup won't run properly. If you don't wish to initialize a whole new environment (or you don't use ``conda``), install the dependencies separately and forgo the ``conda env create`` step. Either way, the above will install the module in your environment's (or ``/usr/local/python/``) site-packages directory under the package ``neuroshape``. You can then import the extensions into your own code, e.g.:
 
 .. code-block:: python
 

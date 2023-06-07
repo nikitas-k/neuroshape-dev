@@ -248,6 +248,7 @@ dependencies:
       - looseversion==1.2.0
       - networkx==3.1
       - neuromaps==0.0.4
+      - neuroshape==0.0.3
       - nibabel==5.1.0
       - nilearn==0.10.1
       - nipype==1.8.6
@@ -258,6 +259,7 @@ dependencies:
       - pyqt5-sip==12.11.0
       - rdflib==6.3.2
       - scikit-learn==1.2.2
+      - scikit-sparse==0.4.8
       - simplejson==3.19.1
       - tenacity==8.2.2
       - threadpoolctl==3.1.0

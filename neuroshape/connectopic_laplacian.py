@@ -30,6 +30,7 @@ from subprocess import Popen
 from neuroshape.eta import eta_squared
 from neuroshape.euler import euler_threshold
 from os.path import split
+from neuroshape.utils.geometry import estimate_fwhm, resel_count
 
 os_path = dict(os.environ).get('PATH')
 
@@ -171,13 +172,17 @@ def compute_similarity(img_input, img_roi, img_mask):
     zpc = np.arctanh(c)
     zpc = zpc[:,np.all(~np.isnan(zpc), axis=0)]
     
-    s = eta_squared(zpc)
+    smat = eta_squared(zpc)
     
-    return s
+    return smat
 
 def thresh(w, s):
+    # find FWHM of matrix
+    fwhm = estimate_fwhm(w)
+    # calculate resel count using FWHM
+    num_resels = resel_count(w, fwhm)
     # compute optimal threshold based on euler characteristic
-    threshold = euler_threshold(w, 256)
+    threshold = euler_threshold(w, num_resels)
     w_thresh = w <= threshold
     binary = w_thresh > 0.
     s_thresh = np.zeros_like(s)
@@ -204,9 +209,9 @@ def calc_LaplacianMatrix(s, num_gradients):
     return L
     
 def calc_gradients(img_input, img_roi, img_mask, num_gradients=2):
-    s = compute_similarity(img_input, img_roi, img_mask)
+    smat = compute_similarity(img_input, img_roi, img_mask)
     
-    L = calc_LaplacianMatrix(s, num_gradients)
+    L = calc_LaplacianMatrix(smat, num_gradients)
     
     evals, egrads = eigh(L)
     

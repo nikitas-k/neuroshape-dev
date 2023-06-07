@@ -63,7 +63,7 @@ def combine_geometry(in_file, label_values):
 def gaussian(x, amplitude, mean, stddev):
     return amplitude * np.exp(- ((x - mean) ** 2) / (2 * (stddev ** 2)))
 
-def calculate_fwhm(image):
+def estimate_fwhm(image):
     # Find the maximum value and its position in the image
     max_val = np.max(image)
     max_pos = np.argmax(image)
@@ -90,7 +90,9 @@ def calculate_fwhm(image):
     
     return fwhm
     
-    
+def resel_count(image, fwhm):
+    # returns resel count of image given FWHM
+    return np.prod(image.shape / fwhm)    
     
 # def write_geometry(model, outfile):
 #     if not is_string_like(outfile):

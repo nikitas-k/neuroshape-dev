@@ -4,6 +4,7 @@
 Calculate the eigenmodes of a volume
 
 @author: James Pang and Kevin Aquino, Monash University, 2022
+modified by Nikitas C. Koussis, Systems Neuroscience Group Newcastle, 2023
 """
 
 # Import all the libraries
@@ -306,6 +307,12 @@ def calc_volume_eigenmodes(nifti_input_filename, nifti_output_filename, output_e
     else:
         new_shape = np.append(new_shape, num_modes)
     new_data = np.zeros(new_shape)
+    
+    # standardize modes
+    emodes = (emodes - np.mean(emodes))/np.std(emodes)
+    
+    # zero baseline
+    emodes = emodes - np.min(emodes)
 
     # perform interpolation of eigenmodes from tetrahedral surface space to volume space
     for mode in range(0, num_modes):

@@ -254,17 +254,18 @@ main()
 		#mrconvert ${segInputImage} ${segConverted} -quiet -force
 		
 		# Register segmentation image to MNI space
-		tkregister2 --mov ${fs_subjects_dir}/${Subject}/mri/brain.mgz --targ ${fs_subjects_dir}/${Subject}/mri/rawavg.mgz --reg register.native.dat --noedit --regheader --fslregout ${StudyFolder}/${Subject}/FS2FSL.mat
+		tkregister2 --mov ${fs_subjects_dir}/${Subject}/mri/brain.mgz --targ ${fs_subjects_dir}/${Subject}/mri/rawavg.mgz --reg ${fs_subjects_dir}/${Subject}/mri/register.native.dat --noedit --regheader --fslregout ${StudyFolder}/${Subject}/FS2FSL.mat
         mri_vol2vol --mov ${fs_subjects_dir}/${Subject}/mri/brain.mgz --targ ${fs_subjects_dir}/${Subject}/mri/rawavg.mgz --regheader --o ${StudyFolder}/${Subject}/brainFSnat.nii
         mrconvert ${fs_subjects_dir}/${Subject}/mri/brain.mgz ${StudyFolder}/${Subject}/brainFS.nii -quiet -force -nthreads 1
         mri_vol2vol --mov ${segInputImage} --targ ${fs_subjects_dir}/${Subject}/mri/rawavg.mgz --regheader --o ${segConverted} --nearest --keep-precision
-		flirt -ref ${FSLDIR}/data/standard/MNI152_T1_2mm_brain -in ${StudyFolder}/${Subject}/brainFS -dof 12 -cost normmi -omat ${StudyFolder}/${Subject}/FS2MNI.mat
-		
+		if [[ ! -f ${StudyFolder}/${Subject}/FS2MNI.mat ]]; then
+    		flirt -ref ${FSLDIR}/data/standard/MNI152_T1_2mm_brain -in ${StudyFolder}/${Subject}/brainFS -dof 12 -cost normmi -omat ${StudyFolder}/${Subject}/FS2MNI.mat
+		fi
 		mrconvert ${segConverted} ${StudyFolder}/${Subject}/parcstr.nii -strides +1,2,3 -force -quiet
         mv ${StudyFolder}/${Subject}/parcstr.nii ${StudyFolder}/${Subject}/aseg.nii
         convert_xfm -omat ${StudyFolder}/${Subject}/FSL2FS.mat -inverse ${StudyFolder}/${Subject}/FS2FSL.mat
-        flirt -ref ${StudyFolder}/${Subject}/brainFS.nii -in ${segConverted} -applyxfm -init F${StudyFolder}/${Subject}/SL2FS.mat -out ${StudyFolder}/${Subject}/aseg_FS
-        flirt -ref ${FSLDIR}/data/standard/MNI152_T1_2mm_brain.nii.gz -in ${StudyFolder}/${Subject}/aseg_FS -applyxfm -init ${StudyFolder}/${Subject}/FS2MNI.mat -out ${StudyFolder}/${Subject}/aseg_mni
+        flirt -ref ${StudyFolder}/${Subject}/brainFS.nii -in ${segConverted} -applyxfm -init ${StudyFolder}/${Subject}/FSL2FS.mat -out ${StudyFolder}/${Subject}/aseg_FS -interp nearestneighbour
+        flirt -ref ${FSLDIR}/data/standard/MNI152_T1_2mm_brain.nii.gz -in ${StudyFolder}/${Subject}/aseg_FS -applyxfm -init ${StudyFolder}/${Subject}/FS2MNI.mat -out ${StudyFolder}/${Subject}/aseg_mni -interp nearestneighbour
 		
 		segConverted=${StudyFolder}/${Subject}/aseg_mni.nii.gz
 		# Extract label images for volume eigenmode calculation

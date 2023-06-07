@@ -1,9 +1,0 @@
-matplotlib
-nibabel>=3.0.0
-nilearn
-numpy>=1.14.0
-scikit-learn
-scipy
-nipype>=1.8.6
-scikit-sparse>=0.4.8
-lapy

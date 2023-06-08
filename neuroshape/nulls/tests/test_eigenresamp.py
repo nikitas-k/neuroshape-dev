@@ -25,9 +25,10 @@ def test_resampling(surface_filename, n=200):
     
     # exclude the zero mode
     emodes = ev['Eigenvectors'][:,1:]
-    emodes = eigvecs/np.linalg.norm(eigvecs, axis=0)
+    emodes = emodes/np.linalg.norm(emodes, axis=0)
     evals = ev['Eigenvalues']
     
     # test resampling
     new_surface = eigenmode_resample(surface, evals, emodes)
 
+    return new_surface

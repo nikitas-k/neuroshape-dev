@@ -22,5 +22,5 @@ setup(name='neuroshape',
       author='Nikitas C. Koussis, Systems Neuroscience Group Newcastle',
       author_email='nikitas.koussis@gmail.com',
       url='https://github.com/nikitas-k/neuroshape-dev',
-      packages=['neuroshape'],
+      packages=['neuroshape', 'neuroshape.nulls', 'neuroshape.utils'],
       ext_modules=[eta, glmfit, euler])

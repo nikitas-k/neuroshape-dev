@@ -115,7 +115,7 @@ new_data = zeros(size(gm_msk,1), size(gm_msk,2), size(gm_msk,3), T);
 x = x';
 
 for i = 1:length(ind_gm)
-    new_data(xx(i), yy(i), zz(i), :) = x(i);
+    new_data(xx(i), yy(i), zz(i), :) = x(i,:);
 end
 
 mat2nii(new_data, [folder, '/', basename, '_filtered.nii'], size(new_data), 32, '{mask_filename}');
@@ -214,15 +214,16 @@ def calc_gradients(img_input, img_roi, img_mask, num_gradients=2):
     
     evals, egrads = eigh(L)
     
+    # exclude the first eigenvalue, return only the non-zero `num_gradients` last gradients
+    egrads = egrads[:, 1:num_gradients+1]
+    evals = evals[1:num_gradients+1]
+    
     # Z-transform eigenvectors
-    egrads = (egrads - np.mean(egrads))/np.std(egrads)
+    egrads = normalize_data(egrads)
     
     # make positive
     egrads = egrads - np.min(egrads)
     
-    # exclude the first eigenvalue, return only the non-zero `num_gradients` last gradients
-    egrads = egrads[:, 1:num_gradients+1]
-    evals = evals[1:num_gradients+1]
     
     return evals, egrads
 
@@ -307,8 +308,22 @@ def connectopic_laplacian(data_input_filename, data_roi_filename, mask_filename,
         print('Smoothing with Gaussian kernel of FWHM = {}mm'.format(fwhm))
         data_input_filename = smooth(data_input_filename, fwhm)
     if filtering is True:
+        print("Normalizing input data before filtering")
+        img_input = image.load_img(data_input_filename)
+        img_mask = image.load_img(mask_filename)
+        
+        # mask and normalize input data
+        data_msk = masking.apply_mask(img_input, img_mask)
+        data_msk = normalize_data(data_msk)
+        img_input = masking.unmask(data_msk, img_mask)
+        
+        output_filename = data_input_filename.replace('.nii', '_normalized.nii')
+        
+        print('Saving normalized data to {}'.format(output_filename))
+        nib.save(img_input, output_filename)
+        
         print('Performing Wishart filtering using icaDim.m, see: <https://github.com/Washington-University/HCPpipelines/tree/master/global/matlab/icaDim>')
-        data_input_filename = wishart(data_input_filename, mask_filename)
+        data_input_filename = wishart(output_filename, mask_filename)
     
     print('Loading images')
     img_input = image.load_img(data_input_filename)

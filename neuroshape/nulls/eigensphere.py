@@ -19,6 +19,7 @@ from nilearn import plotting
 
 cmap = plt.get_cmap('viridis')
 
+global norm_types
 norm_types = [
     'constant',
     'number',
@@ -26,6 +27,7 @@ norm_types = [
     'area',
     ]
 
+global methods
 methods = [
     'matrix',
     'matrix_separate',
@@ -121,7 +123,8 @@ def eigenmode_resample(surface, evals, emodes, angles=None, normalize='area',
             'constant' : normalize by a constant factor (default is 1^(1/3))
             'number' : normalize by the number of vertices
             'volume' : normalize by the volume of the reconstructed surface
-            'area' : normalize by the area of the new vertices
+            'area' : normalize by the surface area of the faces bounded by 
+                    the new vertices
         
         The default is 'area'.
         
@@ -132,12 +135,12 @@ def eigenmode_resample(surface, evals, emodes, angles=None, normalize='area',
         The default is 'matrix'.
         
     norm_factor : int, optional
-        Normalization factor for 'constant'. Unused in any other method.
+        Normalization factor for 'constant'. Unused in any other method
 
     Returns
     -------
     new_surface : nib.GiftiImage class
-        The new surface that has been reconstructed using the new eigenmodes.
+        The new surface that has been reconstructed using the new eigenmodes
         
     Raises
     ------
@@ -152,29 +155,31 @@ def eigenmode_resample(surface, evals, emodes, angles=None, normalize='area',
             raise ValueError("Eigenmodes must have the same number of vertices as the surface")
     if evals.ndim != 1:
         raise ValueError("Eigenvalue array must be 1-dimensional")
-    if emodes.shape[1] != evals.shape:
+    if emodes.shape[1] != evals.shape[0]:
         # try transpose
         emodes = emodes.T
-        if emodes.shape[1] != evals.shape:
+        if emodes.shape[1] != evals.shape[0]:
             raise ValueError("There must be as many eigenmodes as there are eigenvalues")
     if not isinstance(surface, nib.GiftiImage):
         raise ValueError("Input surface must be of nibabel.GiftiImage class")
     if emodes.shape[1] >= surface.darrays[0].data.shape[0]:
         raise ValueError("Number of eigenmodes must be less than the number of vertices on the surface")
-    if decomp_method in methods:
-        method = decomp_method
-    else:
-        raise ValueError("Eigenmode decomposition method must be 'matrix', 'matrix_separate', 'regression'")
-        
+    if normalize is not None:
+        if normalize in norm_types:
+            normalize = normalize
+        else:
+            raise ValueError("Normalization type must be 'constant', 'number', 'volume', 'area'")
+    if decomp_method is not None:
+        if decomp_method in methods:
+            method = decomp_method
+        else:
+            raise ValueError("Eigenmode decomposition method must be 'matrix', 'matrix_separate', 'regression'")
     # if not given angles
     if angles is None:
-        angles = np.random.random_sample(size=emodes.shape[1])
+        angles = np.random.random_sample(size=emodes.shape[1] - 1) * np.pi
     
     # find eigengroups
     groups = _get_eigengroups(emodes)
-    
-    # ensure the eigenmodes are orthonormal
-    emodes = emodes / np.linalg.norm(emodes, axis=0)
     
     # initialize the new modes
     new_modes = np.zeros_like(emodes)
@@ -187,7 +192,7 @@ def eigenmode_resample(surface, evals, emodes, angles=None, normalize='area',
         
         if len(group) == 1:
             # resample along the line of real numbers (0, 1)
-            group_modes *= np.random.random(0, 1)
+            group_modes *= np.random.random()
             # ensure orthonormal
             new_modes[:, group] = group_modes / np.linalg.norm(group_modes)
         
@@ -205,8 +210,8 @@ def eigenmode_resample(surface, evals, emodes, angles=None, normalize='area',
                 p += r_i * group_modes[i]
             
             # ensure orthonormal
-            group_new_modes = p / np.linalg.norm(p)
-            new_modes[:, group], _ = np.linalg.qr(group_new_modes, mode='reduced')
+            group_new_modes = p
+            new_modes[:, group] = np.linalg.qr(group_new_modes, mode='reduced')[0]
             
         # else, transform to spheroid and index the angles properly
         group_modes = transform_to_spheroid(group_evals, group_modes)
@@ -216,18 +221,14 @@ def eigenmode_resample(surface, evals, emodes, angles=None, normalize='area',
         new_modes[:, group] = transform_to_ellipsoid(group_evals, group_new_modes)
     
     # reconstruct the new surface
-    if normalize in norm_types:
-        if normalize == 'constant':
-            if norm_factor > 0.:
-                new_surface = reconstruct_surface(surface, new_modes, normalize=normalize, norm_factor=norm_factor, method=method)
-            else:
-                raise ValueError("Normalization factor must be greater than zero")
-        else:
+    if normalize == 'constant':
+        if norm_factor > 0.:
             new_surface = reconstruct_surface(surface, new_modes, normalize=normalize, norm_factor=norm_factor, method=method)
-            
+        else:
+            raise ValueError("Normalization factor must be greater than zero")
     else:
-        raise ValueError("Normalization type must be 'constant', 'number', 'volume', 'area'")
-        
+        new_surface = reconstruct_surface(surface, new_modes, n=new_modes.shape[1], normalize=normalize, method=method)
+            
     return new_surface
 
 
@@ -262,7 +263,7 @@ def plot_surface(surface, data=None, hemi='left', view='lateral', cmap='gray', s
     """
     # make figure
     fig = plt.figure(figsize=(15,9), constrained_layout=False)
-    mesh = surface.darrays
+    mesh = (surface.darrays[0].data, surface.darrays[1].data)
     
     # get colormap
     cmap = plt.get_cmap(cmap)

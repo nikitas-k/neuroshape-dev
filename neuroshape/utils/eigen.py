@@ -1,10 +1,9 @@
 import numpy as np
 from neuromaps.stats import compare_images
-from numpy.random import permutation as perm
-from numpy.random import randint
-from .swap_single_row import swap_single_row
+from neuroshape.utils.swap_single_row import swap_single_row
 from lapy.TriaMesh import TriaMesh
 import nibabel as nib
+from scipy.stats import boxcox, boxcox_normmax
 
 """
 Eigenmode helper functions (C) Systems Neuroscience Newcastle &
@@ -67,7 +66,7 @@ def _get_eigengroups(eigs):
     """
     Helper function to find eigengroups
     """
-    lam = eigs.shape[0] # number of eigenmodes
+    lam = eigs.shape[1] # number of eigenmodes
     l = np.floor((lam-1)/2).astype(int)    
     if lam == 1:
         return np.asarray([0])
@@ -80,14 +79,12 @@ def _get_eigengroups(eigs):
     ii = 0
     i = 0
     for g in range(l+1):
-        ii += 2*g + 1
+        ii += 2*g+1
         if ii >= lam:
-            groups.append(np.arange(i,lam))
-            break
+            groups.append(np.arange(i,lam-1))
+            return groups
         groups.append(np.arange(i,ii))
         i = ii
-    
-    return groups
 
 
 def find_optimum_eigengroups(eigs, y, groups, previous_corr=0., tol=0.00001):
@@ -97,7 +94,7 @@ def find_optimum_eigengroups(eigs, y, groups, previous_corr=0., tol=0.00001):
         if len(groups[0]) < 2:
             return eigs_
     
-    eigs_swapped = np.vstack(swap_single_row(eigs_[groups[i]]) for i in range(len(groups)))
+    eigs_swapped = np.vstack(swap_single_row(eigs_[:, groups[i]]) for i in range(len(groups)))
     next_betas = np.matmul(eigs_swapped, y)
     next_recon = np.matmul(next_betas.T, eigs_swapped).reshape(-1,)
     next_corr = compare_images(y, next_recon)
@@ -131,8 +128,8 @@ def reconstruct_surface(surface, eigenmodes, n=100, normalize='area', norm_facto
         Accepted types:
             'constant' : normalize by a constant factor (default is 1^(1/3))
             'number' : normalize by the number of vertices
-            'volume' : normalize by the volume of the reconstructed surface
-            'area' : normalize by the area of the new vertices
+            'volume' : normalize by the volume of the original surface
+            'area' : normalize by the area of the original vertices
             
     method : str, optional
         method of calculation of coefficients: 'matrix', 'matrix_separate', 
@@ -146,14 +143,17 @@ def reconstruct_surface(surface, eigenmodes, n=100, normalize='area', norm_facto
 
     """
     
+    # get existing vertices
+    vertices = surface.darrays[0].data
+    
     # initialize new vertices
-    new_vertices = np.zeros_like(eigenmodes)
+    new_vertices = np.zeros_like(vertices)
     
     # find coeffs
     if method is not None:
-        coeffs = eigen_decomposition(surface.darrays[0].data, eigenmodes, method=method)
+        coeffs = eigen_decomposition(vertices, eigenmodes, method=method)
     else:
-        coeffs = eigen_decomposition(surface.darrays[0].data, eigenmodes)
+        coeffs = eigen_decomposition(vertices, eigenmodes)
         
     
     # partition coeffs into x, y, z
@@ -168,31 +168,33 @@ def reconstruct_surface(surface, eigenmodes, n=100, normalize='area', norm_facto
     
     # normalize vertices
     if normalize:
-        tria = TriaMesh(new_vertices, faces)
-        tria_norm = tria
+        orig_tria = TriaMesh(vertices, faces)
+        new_tria = TriaMesh(new_vertices, faces)
+        tria_norm = new_tria
         if normalize == 'number':
-            number = np.sum(tria.v.shape)
-            tria_norm.v = tria.v/(number ** (1/3))
+            number = np.sum(orig_tria.v.shape)
+            tria_norm.v = new_tria.v/(number ** (1/3))
             
         elif normalize == 'volume':
-            volume = tria.volume()
-            tria_norm.v = tria.v/(volume ** (1/3))
+            volume = orig_tria.volume()
+            tria_norm.v = new_tria.v/(volume ** (1/3))
             
         elif normalize == 'constant':
-            tria_norm.v = tria.v/(norm_factor ** (1/3))
+            tria_norm.v = new_tria.v/(norm_factor ** (1/3))
         
         elif normalize == 'areas':
-            areas = tria.vertex_areas()
-            tria_norm.v = tria.v/(areas ** (1/3))
+            areas = orig_tria.vertex_areas()
+            tria_norm.v = new_tria.v/(areas ** (1/3))
         
         else:
             pass
         new_vertices = tria_norm.v
         
-    new_surface = nib.GiftiImage()
-    new_surface.add_gifti_data_array(nib.gifti.gifti.GiftiDataArray((new_vertices, faces)))
+    #new_surface = nib.GiftiImage()
+    #new_surface.add_gifti_data_array(nib.gifti.gifti.GiftiDataArray(new_vertices))
+    #new_surface.add_gifti_data_array(nib.gifti.gifti.GiftiDataArray(faces))
     
-    return new_surface
+    return new_vertices
 
     
 def eigen_decomposition(data, eigenmodes, method='matrix'):
@@ -221,17 +223,17 @@ def eigen_decomposition(data, eigenmodes, method='matrix'):
     _, M = eigenmodes.shape
     
     if method == 'matrix':
-        coeffs = np.linalg.solve(eigenmodes.T @ eigenmodes, eigenmodes. T @ data)
+        coeffs = np.linalg.solve((eigenmodes.T @ eigenmodes), (eigenmodes.T @ data))
     
-    elif method == 'matrix-separate':
-        coeffs = np.zeros((N, P))
+    elif method == 'matrix_separate':
+        coeffs = np.zeros((M, P))
         for p in range(P):
-            coeffs[:, p] = np.linalg.solve(eigenmodes.T @ eigenmodes, eigenmodes.T @ data[:, p])
+            coeffs[:, p] = np.linalg.solve((eigenmodes.T @ eigenmodes), (eigenmodes.T @ data[:, p].reshape(-1,1)))
             
     elif method == 'regression':
-        coeffs = np.zeros((N, P))
+        coeffs = np.zeros((M, P))
         for p in range(P):
-            coeffs[:, p] = np.linalg.lstsq(np.hstack((eigenmodes, np.ones((M, 1)))), data[:, p], rcond=None)[0][:-1]
+            coeffs[:, p] = np.linalg.lstsq(eigenmodes, data[:, p], rcond=None)[0]
                 
     return coeffs
     
@@ -249,7 +251,7 @@ def transform_to_spheroid(eigenvalues, eigenmodes):
     Transform the eigenmodes to a spheroid space
     """
     ellipsoid_axes = compute_axes_ellipsoid(eigenvalues)
-    ellipsoid_axes = ellipsoid_axes.reshape(-1, 1)
+    #ellipsoid_axes = ellipsoid_axes.reshape(-1, 1)
     
     spheroid_eigenmodes = eigenmodes / ellipsoid_axes
     
@@ -262,7 +264,6 @@ def transform_to_ellipsoid(eigenvalues, eigenmodes):
     """
     
     ellipsoid_axes = compute_axes_ellipsoid(eigenvalues)
-    ellipsoid_axes = ellipsoid_axes.reshape(-1, 1)
     
     ellipsoid_eigenmodes = eigenmodes * ellipsoid_axes
     
@@ -283,15 +284,16 @@ def resample_spheroid(spheroid_eigenmodes, angles=None):
     p = r * spheroid_eigenmodes
     
     # check if angles are input or not
-    if angles:
-        assert angles.shape[0] == spheroid_eigenmodes.shape[0] - 1, "The number of angles should be one less than the number of basis modes"
+    if angles is not None:
+        if angles.shape[0] != spheroid_eigenmodes.shape[1]:
+            raise ValueError("The number of angles should be the same as the number of basis modes")
         angles = angles
     else:
-        angles = np.random.random_sample(size=spheroid_eigenmodes.shape[0]) * 2 * np.pi
+        angles = np.random.random_sample(size=spheroid_eigenmodes.shape[1] - 1) * 2 * np.pi
         
     # Compute the coordinates for new points p
     print("Computing the coordinates for each dimension")
-    for i in range(1, spheroid_eigenmodes.shape[0]):
+    for i in range(1, spheroid_eigenmodes.shape[1]):
         r_i = r
         for j in range(i):
             if np.mod(i, 2) == 1: #ODD
@@ -311,6 +313,6 @@ def resample_spheroid(spheroid_eigenmodes, angles=None):
     
     # ensure that the unit modes are orthonormal (QR decomposition)
     print("Ensuring the new modes are orthonormal")
-    new_modes = np.linalg.qr(new_modes, mode='reduced')
+    new_modes = np.linalg.qr(new_modes, mode='reduced')[0]
     
     return new_modes  

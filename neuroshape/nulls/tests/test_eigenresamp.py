@@ -57,7 +57,7 @@ def test_surrogates(surface_filename, n=201, num_surrogates=100):
     
     return new_surfaces
 
-def test_plot_surfaces(surface, new_surfaces, n=200, data=None, hemi='left', view='lateral', vmin=None, vmax=None, cmap='bone_r', show=True):
+def test_plot_surfaces(surface, new_surfaces, n=201, data=None, hemi='left', view='lateral', vmin=None, vmax=None, cmap='bone_r', show=True):
     # plot a number of new surfaces and compare to the original
     fig = plt.figure(figsize=(20, 7), constrained_layout=False)
     grid = gridspec.GridSpec(
@@ -87,7 +87,7 @@ def test_plot_surfaces(surface, new_surfaces, n=200, data=None, hemi='left', vie
     ax.text(0.5, 0.1, 'Original surface', ha='center', fontdict={'fontsize':30})
     
     # add title
-    label = f'Resampled surfaces at {n} modes'
+    label = f'Resampled surfaces at {n-1} modes'
     ax = fig.add_subplot(grid[i+1])
     ax.axis('off')
     ax.text(1., 0.9, label, ha='center', fontdict={'fontsize':30})

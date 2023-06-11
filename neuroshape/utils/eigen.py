@@ -2,8 +2,6 @@ import numpy as np
 from neuromaps.stats import compare_images
 from neuroshape.utils.swap_single_row import swap_single_row
 from lapy.TriaMesh import TriaMesh
-import nibabel as nib
-from scipy.stats import boxcox, boxcox_normmax
 
 """
 Eigenmode helper functions (C) Systems Neuroscience Newcastle &
@@ -87,9 +85,9 @@ def _get_eigengroups(eigs):
         i = ii
 
 
-def find_optimum_eigengroups(eigs, y, groups, previous_corr=0., tol=0.00001):
-    #copy original array
-    eigs_ = eigs
+def find_optimum_eigengroups(eigs, y, groups, previous_corr=0., tol=0.001):
+    #copy original array and transpose for right shape
+    eigs_ = eigs.T
     if len(groups) == 2:
         if len(groups[0]) < 2:
             return eigs_
@@ -101,9 +99,9 @@ def find_optimum_eigengroups(eigs, y, groups, previous_corr=0., tol=0.00001):
     
     try:
         if (next_corr - previous_corr) > tol:
-            return eigs_
+            return eigs_.T
     except:
-        return eigs_
+        return eigs_.T
     eigs_ = eigs_swapped
     previous_corr = next_corr
     

@@ -1,6 +1,5 @@
 import numpy as np
 import seaborn as sns
-import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from nilearn import image
@@ -120,7 +119,7 @@ plt.show()
 # =============================================================================
 
 lboFolder = '/Volumes/Scratch/functional_integration_psychosis/'
-
+# TODO
 
 
 # =============================================================================
@@ -373,7 +372,9 @@ plt.show()
 # =============================================================================
 # #### Between group mode-to-mode ####
 # =============================================================================
-    
+
+# TODO
+
 corr_lh_psi_groups = np.zeros((Psi_lh_HC.shape[0],Psi_lh_HC.shape[0]))
 corr_rh_psi_groups = np.zeros((Psi_rh_HC.shape[0],Psi_lh_HC.shape[0]))
 

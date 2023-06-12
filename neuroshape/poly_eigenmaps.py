@@ -2,7 +2,7 @@ from lapy import TriaMesh
 from lapy.ShapeDNA import compute_shapedna
 import numpy as np
 from joblib import Parallel, delayed
-from .utils.dataio import dataio
+from brainsmash.utils.dataio import dataio
 from pathlib import Path
 
 __all__ = ['PolyLBO']

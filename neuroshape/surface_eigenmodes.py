@@ -30,12 +30,26 @@ from neuroshape.utils.fetch_atlas import fetch_atlas
 from os.path import splitext
 from lapy import TriaMesh
 from lapy.ShapeDNA import compute_shapedna
+from neuroshape.utils.geometry import (
+    normalize_vtk,
+    make_tetra_file,
+    get_tkrvox2ras,
+    mri_mc,    
+    )
+
 
 image_types = [
     '.nii',
     '.nii.gz',
     '.gii',
     '.pial',
+    ]
+
+norm_types = [
+    'area',
+    'constant',
+    'number',
+    'volume',   
     ]
 
 """
@@ -66,6 +80,7 @@ Dependencies
 
 def generate_mesh(data_input_filename):
     
+    
     return surface
 
 
@@ -80,7 +95,7 @@ def calc_eigenmodes(surface, num_modes=2):
     return evals, emodes
 
 
-def surface_eigenmodes(data_input_filename, data_output_filename, output_evals_filename, output_modes_filename, num_modes=2, normalization_type='area', norm_factor=1, template=None):
+def surface_eigenmodes(data_input_filename, data_output_filename, output_evals_filename, output_modes_filename, num_modes=2, normalization_type='area', norm_factor=1, template=None, fs_dir=None):
     """
     Main function to calculate the connectopic Laplacian gradients of an ROI volume in NIFTI format.
 
@@ -99,23 +114,31 @@ def surface_eigenmodes(data_input_filename, data_output_filename, output_evals_f
 
     """
     
-    output_name, output_ext = splitext(data_input_filename)
+    input_name, input_ext = splitext(data_input_filename)
+    output_name, output_ext = splitext(data_output_filename)
     
-    if output_ext in image_types:
+    if input_ext in image_types:
         print('Loading images')
         img_input = image.load_img(data_input_filename)
-        if output_ext == '.gii':
+        if input_ext == '.gii':
             print('Gifti image input, no need to generate surface')
             coords, faces = (img_input.darrays[0].data, img_input.darrays[1].data)
-        if output_ext in ['.nii', '.nii.gz']:
+        if input_ext in ['.nii', '.nii.gz']:
             print('Nifti image input, generating surface')
             coords, faces = generate_mesh(data_input_filename, normalization_type=normalization_type, norm_factor=norm_factor)
             
     else:
         raise ValueError("Invalid input image, must be '.gii', '.nii.gz', or '.nii'")
-        
-        
-    img_input = image.load_img(data_input_filename)
+    
+    if output_ext in image_types:
+        if output_ext in ['.nii.gz', '.nii.gz']:
+            # get affine and header and make new nifti image
+            img_output = nib.Nifti1Image(affine=img_input.affine, header=img_input.header)
+        else:
+            img_output = nib.GiftiImage()
+            
+    else:
+        raise ValueError("Invalid output extension, must be '.gii', '.nii.gz', or '.nii'")
     
     evals, emodes = calc_eigenmodes(img_input, num_modes)
     
@@ -127,11 +150,18 @@ def surface_eigenmodes(data_input_filename, data_output_filename, output_evals_f
     new_shape = np.array(img_input.shape)
     new_data = np.zeros(new_shape)
     
-    # put gradients into nifti array
-    for mode in range(num_modes):
-        data = emodes[:, mode]
-        new_data[xx, yy, zz, mode] = data
+    if isinstance(img_output, nib.Nifti1Image):
+        # get 
         
+        # put gradients into nifti array
+        for mode in range(num_modes):
+            data = emodes[:, mode]
+            new_data[xx, yy, zz, mode] = data
+        
+    
+    print('Saving output gradient file to {}'.format(data_output_filename))
+    nib.save(img, data_output_filename)
+    
     # save modes to output format
     print('Saving output modes file to {}'.format(data_output_filename))
     nib.save(img, data_output_filename)
@@ -159,7 +189,10 @@ def main(raw_args=None):
     parser.add_argument("--eval", dest="output_evals_filename", default=None, help="An output text file where the eigenvalues will be stored", metavar="evals.txt")
     parser.add_argument("--grads", dest="output_modes_filename", default=None, help="An output text file where the gradients will be stored", metavar="grads.txt")
     parser.add_argument("-N", dest="num_gradients", default=2, help="Number of gradients to be calculated, default=2", metavar="2")
-    parser.add_argument("--resample", dest="template", help="Option whether to perform smoothing and what FWHM to perform smoothing", metavar="6")
+    parser.add_argument("--normalization_type", default='area', help='Which normalization type to perform', metavar="area")
+    parser.add_argument("--norm_factor", default=1., help="If performing normalization type 'constant', which number to divide the vertex length by", metavar="2")
+    parser.add_argument("--resample", dest="template", default=None, help="Option: Which template to resample the LBOs to", metavar="fs_LR_32k")
+    parser.add_argument("--fs_dir", help="The output directory from a subject's FreeSurfer recon-all processing")
     
     #-----------------   Parsing mandatory inputs from terminal:   ----------------
     args = parser.parse_args()
@@ -168,7 +201,10 @@ def main(raw_args=None):
     num_modes               = int(args.num_modes)
     output_evals_filename   = args.output_evals_filename
     output_modes_filename   = args.output_modes_filename
+    normalization_type      = str(args.normalization_type)
+    normalization_factor    = float(args.norm_factor)
     template                = str(args.template)
+    fs_dir                  = str(args.fs_dir)
     #-------------------------------------------------------------------------------
     
     print("")
@@ -186,8 +222,7 @@ def main(raw_args=None):
     print('########################### RUN ##########################')
     print("")
     print('Input fmri filename: {}'.format(data_input_filename))
-    print('Input ROI filename: {}'.format(data_roi_filename))
-    print('Mask filename: {}'.format(mask_filename))
+    print('Number of modes to compute: {}'.format(num_modes))
     print('Output filename: {}'.format(data_output_filename))
     # if output_eval_filename:
     #     print('Output eigenvalue filename: {}'.format(output_eval_filename))
@@ -213,28 +248,29 @@ def main(raw_args=None):
     #             print('Giving grads output file .txt extension')
     #             output_grad_filename += '.txt'
                 
-    print('Number of gradients to compute: {}'.format(num_gradients))
-    
-    if args.smoothing is not None:
-        fwhm = float(args.smoothing)
-        print('Performing smoothing with {}mm FWHM'.format(fwhm))
+    if template is not None:
+        print('Resampling to {} atlas'.format(template))
     else:
-        print('Not performing smoothing')
-    
-    if filtering is True:
-        print('Performing filtering')
-        # make sure matlab is installed and on the PATH
-    else:
-        print('Not performing filtering')
+        print('Not resampling')
         
-    if cortical is True:
-        print('Performing cortical projection')
+    if fs_dir is not None:
+        print('recon-all directory: {}'.format(fs_dir))
     else:
         print('Not performing cortical projection')
         
+    if normalization_type in norm_types:
+        print("Normalizing surface")
+        if normalization_type in 'constant' and normalization_factor != 0.0:
+            print("Normalizing vertex length to constant factor {}".format(normalization_factor))
+        
+        else:
+            raise ValueError("Normalization factor must be non-zero")
+    else:
+        raise ValueError("Normalization type must be 'area', 'constant', 'number', or 'volume'")
+        
     print('Inputs OK')
     
-    surface_eigenmodes(data_input_filename, data_output_filename, output_evals_filename, output_modes_filename, num_modes)
+    surface_eigenmodes(data_input_filename, data_output_filename, output_evals_filename, output_modes_filename, num_modes, fs_dir, template)
     
 if __name__ == '__main__':
     

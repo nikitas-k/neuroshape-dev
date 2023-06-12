@@ -1,24 +1,97 @@
 from nipype.interfaces.freesurfer import MRIMarchingCubes
-from neuroshape.utils.checks import is_string_like
-#import gmsh
 from lapy import TriaMesh
 import warnings
 from collections import OrderedDict
 import scipy.optimize as optimize
-
-#gmsh.initialize()
-
+import subprocess
+import os
+import nibabel as nib
+from neuromaps.transforms import mni152_to_fsaverage
+from nilearn import image
 import numpy as np
+from neuromaps.datasets.atlases import fetch_mni152
+from ants import image_read, registration, apply_transforms
+
 """
-Read and write geometry into different formats
+Helper utilities for geometry and registration
 
     - Runs mri_mc from Freesurfer to create 2d surface
-    - Projects 2d surface to gmsh and creates a tetrahedral mesh for LaPy
-    - Writes out geometry in tetrahedral format or in Freesurfer binary
+    - Projects 2d surface using gmsh
+    - Writes out geometry in tetrahedral format, triangular format, or in Freesurfer binary
     - Writes out label files
+    - Registers from native space to MNI152 and fsaverage space
 
-Code was taken from nibabel.freesurfer package (https://github.com/nipy/nibabel/blob/master/nibabel/freesurfer/io.py).
+read_geometry() was taken from nibabel.freesurfer package (https://github.com/nipy/nibabel/blob/master/nibabel/freesurfer/io.py).
+get_tkrvox2ras(), make_tetra_file(), normalize_vtk(), and calc_volume() taken
+from <https://github.com/BMHLab/BrainEigenmodes>, authors J. Pang and K. Aquino.
+
 """
+
+_ANNOT_DT = ">i4"
+"""Data type for Freesurfer `.annot` files.
+
+Used by :func:`read_annot` and :func:`write_annot`.  All data (apart from
+strings) in an `.annot` file is stored as big-endian int32.
+"""
+
+mni152_2mm = np.asarray(
+                 [[  2.,    0.,   0.,    -90,],
+                  [ -0.,    2.,   0.,   -126,],
+                  [ -0.,    0.,   2.,    -72,],
+                  [  0.,    0.,   0.,      1.]])
+
+mni152_1mm = np.asarray(
+                [[  -1.,    0.,    0.,   90.],
+                 [   0.,    1.,    0., -126.],
+                 [   0.,    0.,    1.,  -72.],
+                 [   0.,    0.,    0.,    1.]])
+
+def _check_mni(in_file):
+    """
+    Checks if input image is in MNI152 space
+    """
+    
+    img = image.load_img(in_file)
+    
+    if img.affine != mni152_2mm:
+        if img.affine != mni152_1mm:
+            return False
+        
+    else:
+        return True
+    
+def native_to_mni152(in_file, nonlinear=True):
+    """
+    Linear or nonlinear registration of native volumetric image to MNI152 space
+    Uses ANTsPy
+    """
+    
+    img = image_read(in_file)
+    
+    # get template image
+    mni_file = fetch_mni152(density='1mm').get('2009cAsym_T1w')
+    mni = image_read(mni_file)
+
+    if nonlinear is True:
+        transform_type='SyN'
+        
+    else:
+        transform_type='Affine'
+        
+    # do transform
+    fixed_image = mni
+    moving_image = img
+    
+    mytx = registration(fixed=fixed_image, moving=moving_image, type_of_transform=transform_type)
+    
+    warped_moving_image = apply_transforms(fixed=fixed_image, moving=moving_image,
+                                           transformlist=mytx['fwdtransforms'])
+    
+    # rebuild as nib.Nifti1Image
+    transformed_image = warped_moving_image.to_nibabel()
+    
+    return transformed_image
+    
 
 def mri_mc(in_file, label_value):
     """
@@ -46,19 +119,6 @@ def mri_mc(in_file, label_value):
     mc.run()
     
     return mc.output_spec.out_file
-
-def combine_geometry(in_file, label_values):
-    geom = np.array()
-    for label in label_values:
-        if not type(label) == int:
-            return ValueError('incorrect format for label inputs')
-        
-        out_file = mri_mc(in_file, label)
-        geom = np.append(read_geometry(out_file))
-    
-    tria = TriaMesh(geom)
-    
-    return tria
 
 def gaussian(x, amplitude, mean, stddev):
     return amplitude * np.exp(- ((x - mean) ** 2) / (2 * (stddev ** 2)))
@@ -94,56 +154,516 @@ def estimate_fwhm(image):
     
 def resel_count(image, fwhm):
     # returns resel count of image given FWHM
-    return np.prod(image.shape / fwhm)    
-    
-# def write_geometry(model, outfile):
-#     if not is_string_like(outfile):
-#         return ValueError('incorrect format for filename output')
-#     if not outfile[:-4] == ".msh":
-#         outfile += ".msh"
-    
-#     gmsh.write(outfile)
-#     gmsh.finalize()
-    
-#     return print(f'mesh file saved to {outfile}')
+    return np.prod(image.shape / fwhm)
         
-def convert_geometry(in_file, label_value, out_file=None):
-    """
-    Converts label or mask file to triangular mesh of class lapy.TriaMesh()
+def get_tkrvox2ras(voldim, voxres):
+    """Generate transformation matrix to switch between tetrahedral and volume space.
 
     Parameters
     ----------
-    in_file : str
-        filename of label volume
-    label_value : int
-        label or mask value to compute marching cubes algorithm on
-    out_file : str, optional
-        filename of output
+    voldim : array (1x3)
+        Dimension of the volume (number of voxels in each of the 3 dimensions)
+    voxres : array (!x3)
+        Voxel resolution (resolution in each of the 3 dimensions)
+
+    Returns
+    ------
+    T : array (4x4)
+        Transformation matrix
+    """
+
+    T = np.zeros([4,4]);
+    T[3,3] = 1;
+
+    T[0,0] = -voxres[0];
+    T[0,3] = voxres[0]*voldim[0]/2;
+
+    T[1,2] = voxres[2];
+    T[1,3] = -voxres[2]*voldim[2]/2;
+
+
+    T[2,1] = -voxres[1];
+    T[2,3] = voxres[1]*voldim[1]/2;
+
+    return T
+
+def make_tetra_file(nifti_input_filename):
+    """Generate tetrahedral version of the ROI in the nifti file.
+
+    Parameters
+    ----------
+    nifti_input_filename : str
+        Filename of input volume where the relevant ROI have voxel values = 1
+
+    Returns
+    ------
+    tetra_file : str
+        Filename of output tetrahedral vtk file
+    """
+
+    nifti_input_file_head, nifti_input_file_tail = os.path.split(nifti_input_filename)
+    nifti_input_file_main, nifti_input_file_ext = os.path.splitext(nifti_input_file_tail)
+
+    os.system('mri_mc ' + nifti_input_filename + ' 1 ' + nifti_input_file_head + '/rh.tmp_surface.vtk')
+    os.system('mv -f ' + nifti_input_file_head + '/rh.tmp_surface.vtk ' + nifti_input_filename + '.vtk')
+
+    geo_file = nifti_input_filename + '.geo'
+    tria_file = nifti_input_filename + '.vtk'
+    tetra_file = nifti_input_filename + '.tetra.vtk'
+
+    file = tria_file.rsplit('/')
+    inputGeo = file[len(file)-1]
+    
+    with open(geo_file, 'w') as writer:
+        writer.write('Mesh.Algorithm3D=4;\n')
+        writer.write('Mesh.Optimize=1;\n')
+        writer.write('Mesh.OptimizeNetgen=1;\n')
+        writer.write('Merge "'+inputGeo+'";\n')
+        writer.write('Surface Loop(1) = {1};\n')
+        writer.write('Volume(1) = {1};\n')
+        writer.write('Physical Volume(1) = {1};\n')
+
+    cmd = 'gmsh -3 -o ' + tetra_file + ' ' + geo_file
+    output = subprocess.check_output(cmd,shell="True")
+    output = output.splitlines()
+
+    cmd = "sed 's/double/float/g;s/UNSTRUCTURED_GRID/POLYDATA/g;s/CELLS/POLYGONS/g;/CELL_TYPES/,$d' " + tetra_file + " > " + tetra_file + "'_fixed'"
+    os.system(cmd)
+    os.system('mv -f ' + tetra_file + '_fixed ' + tetra_file)
+    
+    return tetra_file
+
+def make_tria_file(nifti_input_filename):
+    """
+    Generate triangular mesh of the ROI in the nifti file.
+
+    Parameters
+    ----------
+    nifti_input_filename : str
+        Filename of input volume where the relevant ROI have voxel values = 1
 
     Returns
     -------
-    tria : lapy.TriaMesh class
-
-    Raises
-    ------
-    ValueError : inputs are incorrectly formatted
+    tria_file : str
+        Filename of output triangular vtk file
 
     """
-    if not is_string_like(in_file) or not is_string_like(out_file):
-        return ValueError(f'expected str and str, got {type(in_file)}, {type(out_file)}')
-    if not type(label_value) == int:
-        return ValueError(f'label must be an integer, got {type(label_value)}')
+    nifti_input_file_head, nifti_input_file_tail = os.path.split(nifti_input_filename)
+    nifti_input_file_main, nifti_input_file_ext = os.path.splitext(nifti_input_file_tail)
+
+    os.system('mri_mc ' + nifti_input_filename + ' 1 ' + nifti_input_file_head + '/rh.tmp_surface.vtk')
+    os.system('mv -f ' + nifti_input_file_head + '/rh.tmp_surface.vtk ' + nifti_input_filename + '.vtk')
+
+    geo_file = nifti_input_filename + '.geo'
+    tria_file = nifti_input_filename + '.vtk'
+
+    file = tria_file.rsplit('/')
+    inputGeo = file[len(file)-1]
     
-    if out_file is not None:
-        mri_mc(in_file, label_value, out_file)
-    else:
-        out_file = mri_mc(in_file, label_value)
+    with open(geo_file, 'w') as writer:
+        writer.write('Mesh.Algorithm3D=4;\n')
+        writer.write('Mesh.Optimize=1;\n')
+        writer.write('Mesh.OptimizeNetgen=1;\n')
+        writer.write('Merge "'+inputGeo+'";\n')
+        writer.write('Surface Loop(1) = {1};\n')
+        writer.write('Volume(1) = {1};\n')
+        writer.write('Physical Volume(1) = {1};\n')
+
+    cmd = 'gmsh -2 -o ' + tria_file + ' ' + geo_file
+    output = subprocess.check_output(cmd,shell="True")
+    output = output.splitlines()
+
+    cmd = "sed 's/double/float/g;s/UNSTRUCTURED_GRID/POLYDATA/g;s/CELLS/POLYGONS/g;/CELL_TYPES/,$d' " + tria_file + " > " + tria_file + "'_fixed'"
+    os.system(cmd)
+    os.system('mv -f ' + tria_file + '_fixed ' + tria_file)
+    
+    return tria_file
+
+def mesh_and_remove_medial_wall(nifti_input_filename, fs_dir=None, mesh_type='tria'):
+    """
+    Generates a mesh and removes the medial wall when given a FreeSurfer subject directory
+    Requires recon-all to have been completed and for the names of the
+    outputs to not have been modified. If `fs_dir` is NoneType or
+    the annotation files cannot be found, then a naive implementation
+    of FSL fast is performed to remove the medial wall from the vertices
+    of the nifti input.
+    """
+    
+    if mesh_type not in ['tria', 'tetra']:
+        raise ValueError("mesh type must be triangular or tetrahedral")
         
-    coords, faces = read_geometry(out_file)
+    nifti_input_file_head, nifti_input_file_tail = os.path.split(nifti_input_filename)
+    nifti_input_file_main, nifti_input_file_ext = os.path.splitext(nifti_input_file_tail)
     
-    tria = TriaMesh(coords, faces)
+    # check if nifti is in MNI152 space
+    img = image.load_img(nifti_input_filename)
     
-    return tria
+    if _check_mni(nifti_input_filename) is False:
+        # keep original affine and mask image to return MNI152
+        # registered image
+        img_affine = img.affine
+        img_mni = native_to_mni152(nifti_input_filename)
+        img_mni_filename = nifti_input_file_head + '_mni152' + nifti_input_file_ext
+        print("Saving MNI152-registered input to {}".format(img_mni_filename))
+        nib.save(img_mni, img_mni_filename)
+        
+    if fs_dir is None:
+        print("FreeSurfer subject directory not given, using FSL fast")
+        new_vertices = _remove_medial_wall_no_fs(nifti_input_filename)
+        return new_vertices
+       
+    # register nifti to FreeSurfer average space
+    img_fs = mni152_to_fsaverage(img_mni)
+    
+    # prepare transformation
+    lh, rh = image_fs
+    lh_verts = lh.darrays[0].data.reshape(-1,3)
+    rh_verts = rh.darrays[0].data.reshape(-1,3)
+    
+    # combine the hemispheres into one image
+    verts = np.vstack((lh_verts, rh_verts))
+    
+    xx, yy, zz = verts.T
+
+    points = np.zeros([xx.shape[0],4])
+    points[:,0] = xx
+    points[:,1] = yy
+    points[:,2] = zz
+    points[:,3] = 1
+
+    # calculate transformation matrix
+    T = get_tkrvox2ras(img.shape, img.header.get_zooms())
+
+    # apply transformation
+    points2 = np.matmul(T, np.transpose(points))
+    
+    img_fs_filename = nifti_input_file_head + '_fsaverage' + 
+
+    # generate mesh
+    tria_file = make_tria_file(img_fs)    
+    
+    # find pial surfaces and annotation files
+    lh_pial = fs_dir + '/surf/lh.pial'
+    rh_pial = fs_dir + '/surf/rh.pial'
+    
+    try:
+        # Load the lh and rh pial surface
+        lh_pial = read_geometry(lh_pial)
+        rh_pial = read_geometry(rh_pial)    
+        
+        # Load the lh and rh annotation
+        lh_labels, _, lh_names = read_annot('/label/lh.aparc.annot')
+        rh_labels, _, rh_names = read_annot('/label/rh.aparc.annot')
+        
+        # Find the medial wall
+        lh_medial_wall_label = np.where(lh_names == b'unknown')[0]
+        lh_medial_wall_vertices = np.where(lh_labels == lh_medial_wall_label)[0]
+        
+        # mask out medial wall vertices
+        
+        # fix shape of data structure
+        
+        return new_vertices
+        
+    except:
+        new_vertices = _remove_medial_wall_no_fs(nifti_input_filename)
+        return new_vertices
+        
+    
+
+def _remove_medial_wall_no_fs(nifti_input_filename):
+    """
+    Remove the medial wall using FSL fast and masking out the subcortex
+    """
+    
+    
+    
+    return new_vertices
+
+def calc_volume(nifti_input_filename):
+    """Calculate the physical volume of the ROI in the nifti file.
+
+    Parameters
+    ----------
+    nifti_input_filename : str
+        Filename of input volume where the relevant ROI have voxel values = 1
+
+    Returns
+    ------
+    ROI_number : int
+        Total number of non-zero voxels
+    ROI_volume : float
+        Total volume of non-zero voxels in physical dimensions   
+    """
+
+    # Load data
+    ROI_data = nib.load(nifti_input_filename)
+    roi_data = ROI_data.get_fdata()
+
+    # Get voxel dimensions in mm
+    voxel_dims = (ROI_data.header["pixdim"])[1:4]
+    voxel_vol = np.prod(voxel_dims)
+
+    # Compute volume
+    ROI_number = np.count_nonzero(roi_data)
+    ROI_volume = ROI_number * voxel_vol
+
+    # print("Number of non-zero voxels = {}".format(ROI_number))
+    # print("Volume of non-zero voxels = {} mm^3".format(ROI_volume))
+
+    return ROI_number, ROI_volume
+
+def normalize_vtk(tet, nifti_input_filename, normalization_type='none', normalization_factor=1):
+    """Normalize tetrahedral surface.
+
+    Parameters
+    ----------
+    tet : lapy compatible object
+        Loaded vtk object corresponding to a surface tetrahedral mesh
+    nifti_input_filename : str
+        Filename of input volume where the relevant ROI have voxel values = 1
+    normalization_type : str (default: 'none')
+        Type of normalization
+        number - normalization with respect to the total number of non-zero voxels
+        volume - normalization with respect to the total volume of non-zero voxels in physical dimensions   
+        constant - normalization with respect to a chosen constant
+        others - no normalization
+    normalization_factor : float (default: 1)
+        Factor to be used in a constant normalization     
+
+    Returns
+    ------
+    tet_norm : lapy compatible object
+        Loaded vtk object corresponding to the normalized surface tetrahedral mesh
+    """
+
+    nifti_input_file_head, nifti_input_file_tail = os.path.split(nifti_input_filename)
+    nifti_input_file_main, nifti_input_file_ext = os.path.splitext(nifti_input_file_tail)
+
+    ROI_number, ROI_volume = calc_volume(nifti_input_filename)
+
+    # normalization process
+    tet_norm = tet
+    if normalization_type == 'number':
+        tet_norm.v = tet.v/(ROI_number**(1/3))
+    elif normalization_type == 'volume':
+        tet_norm.v = tet.v/(ROI_volume**(1/3))
+    elif normalization_type == 'constant':
+        tet_norm.v = tet.v/(normalization_factor**(1/3))
+    else:
+        pass
+
+    # writing normalized surface to a vtk file
+    if normalization_type == 'number' or normalization_type == 'volume' or normalization_type == 'constant':
+        surface_output_filename = nifti_input_filename + '_norm=' + normalization_type + '.tetra.vtk'
+
+        f = open(surface_output_filename, 'w')
+        f.write('# vtk DataFile Version 2.0\n')
+        f.write(nifti_input_file_tail + '\n')
+        f.write('ASCII\n')
+        f.write('DATASET POLYDATA\n')
+        f.write('POINTS ' + str(np.shape(tet.v)[0]) + ' float\n')
+        for i in range(np.shape(tet.v)[0]):
+            f.write(' '.join(map(str, tet_norm.v[i, :])))
+            f.write('\n')
+        f.write('\n')
+        f.write('POLYGONS ' + str(np.shape(tet.t)[0]) + ' ' + str(5 * np.shape(tet.t)[0]) + '\n')
+        for i in range(np.shape(tet.t)[0]):
+            f.write(' '.join(map(str, np.append(4, tet.t[i, :]))))
+            f.write('\n')
+        f.close()
+
+    return tet_norm
+
+def read_annot(filepath, orig_ids=False):
+    """Read in a Freesurfer annotation from a ``.annot`` file.
+
+    An ``.annot`` file contains a sequence of vertices with a label (also known
+    as an "annotation value") associated with each vertex, and then a sequence
+    of colors corresponding to each label.
+
+    Annotation file format versions 1 and 2 are supported, corresponding to
+    the "old-style" and "new-style" color table layout.
+
+    Note that the output color table ``ctab`` is in RGBT form, where T
+    (transparency) is 255 - alpha.
+
+    See:
+     * https://surfer.nmr.mgh.harvard.edu/fswiki/LabelsClutsAnnotationFiles#Annotation
+     * https://github.com/freesurfer/freesurfer/blob/dev/matlab/read_annotation.m
+     * https://github.com/freesurfer/freesurfer/blob/8b88b34/utils/colortab.c
+
+    Parameters
+    ----------
+    filepath : str
+        Path to annotation file.
+    orig_ids : bool
+        Whether to return the vertex ids as stored in the annotation
+        file or the positional colortable ids. With orig_ids=False
+        vertices with no id have an id set to -1.
+
+    Returns
+    -------
+    labels : ndarray, shape (n_vertices,)
+        Annotation id at each vertex. If a vertex does not belong
+        to any label and orig_ids=False, its id will be set to -1.
+    ctab : ndarray, shape (n_labels, 5)
+        RGBT + label id colortable array.
+    names : list of bytes
+        The names of the labels. The length of the list is n_labels.
+    """
+    with open(filepath, "rb") as fobj:
+        dt = _ANNOT_DT
+
+        # number of vertices
+        vnum = np.fromfile(fobj, dt, 1)[0]
+
+        # vertex ids + annotation values
+        data = np.fromfile(fobj, dt, vnum * 2).reshape(vnum, 2)
+        labels = data[:, 1]
+
+        # is there a color table?
+        ctab_exists = np.fromfile(fobj, dt, 1)[0]
+        if not ctab_exists:
+            raise Exception('Color table not found in annotation file')
+
+        # in old-format files, the next field will contain the number of
+        # entries in the color table. In new-format files, this must be
+        # equal to -2
+        n_entries = np.fromfile(fobj, dt, 1)[0]
+
+        # We've got an old-format .annot file.
+        if n_entries > 0:
+            ctab, names = _read_annot_ctab_old_format(fobj, n_entries)
+        # We've got a new-format .annot file
+        else:
+            ctab, names = _read_annot_ctab_new_format(fobj, -n_entries)
+
+    # generate annotation values for each LUT entry
+    ctab[:, [4]] = _pack_rgb(ctab[:, :3])
+
+    if not orig_ids:
+        ord = np.argsort(ctab[:, -1])
+        mask = labels != 0
+        labels[~mask] = -1
+        labels[mask] = ord[np.searchsorted(ctab[ord, -1], labels[mask])]
+    return labels, ctab, names
+
+def _pack_rgb(rgb):
+    """Pack an RGB sequence into a single integer.
+
+    Used by :func:`read_annot` and :func:`write_annot` to generate
+    "annotation values" for a Freesurfer ``.annot`` file.
+
+    Parameters
+    ----------
+    rgb : ndarray, shape (n, 3)
+        RGB colors
+
+    Returns
+    -------
+    out : ndarray, shape (n, 1)
+        Annotation values for each color.
+    """
+    bitshifts = 2 ** np.array([[0], [8], [16]], dtype=rgb.dtype)
+    return rgb.dot(bitshifts)
+
+def _read_annot_ctab_old_format(fobj, n_entries):
+    """Read in an old-style Freesurfer color table from `fobj`.
+
+    Note that the output color table ``ctab`` is in RGBT form, where T
+    (transparency) is 255 - alpha.
+
+    This function is used by :func:`read_annot`.
+
+    Parameters
+    ----------
+
+    fobj : file-like
+        Open file handle to a Freesurfer `.annot` file, with seek point
+        at the beginning of the color table data.
+    n_entries : int
+        Number of entries in the color table.
+
+    Returns
+    -------
+
+    ctab : ndarray, shape (n_entries, 5)
+        RGBT colortable array - the last column contains all zeros.
+    names : list of str
+        The names of the labels. The length of the list is n_entries.
+    """
+    assert hasattr(fobj, 'read')
+
+    dt = _ANNOT_DT
+    # orig_tab string length + string
+    length = np.fromfile(fobj, dt, 1)[0]
+    orig_tab = np.fromfile(fobj, '>c', length)
+    orig_tab = orig_tab[:-1]
+    names = list()
+    ctab = np.zeros((n_entries, 5), dt)
+    for i in range(n_entries):
+        # structure name length + string
+        name_length = np.fromfile(fobj, dt, 1)[0]
+        name = np.fromfile(fobj, "|S%d" % name_length, 1)[0]
+        names.append(name)
+        # read RGBT for this entry
+        ctab[i, :4] = np.fromfile(fobj, dt, 4)
+
+    return ctab, names
+
+
+def _read_annot_ctab_new_format(fobj, ctab_version):
+    """Read in a new-style Freesurfer color table from `fobj`.
+
+    Note that the output color table ``ctab`` is in RGBT form, where T
+    (transparency) is 255 - alpha.
+
+    This function is used by :func:`read_annot`.
+
+    Parameters
+    ----------
+
+    fobj : file-like
+        Open file handle to a Freesurfer `.annot` file, with seek point
+        at the beginning of the color table data.
+    ctab_version : int
+        Color table format version - must be equal to 2
+
+    Returns
+    -------
+
+    ctab : ndarray, shape (n_labels, 5)
+        RGBT colortable array - the last column contains all zeros.
+    names : list of str
+        The names of the labels. The length of the list is n_labels.
+    """
+    assert hasattr(fobj, 'read')
+
+    dt = _ANNOT_DT
+    # This code works with a file version == 2, nothing else
+    if ctab_version != 2:
+        raise Exception('Unrecognised .annot file version (%i)', ctab_version)
+    # maximum LUT index present in the file
+    max_index = np.fromfile(fobj, dt, 1)[0]
+    ctab = np.zeros((max_index, 5), dt)
+    # orig_tab string length + string
+    length = np.fromfile(fobj, dt, 1)[0]
+    np.fromfile(fobj, "|S%d" % length, 1)[0]  # Orig table path
+    # number of LUT entries present in the file
+    entries_to_read = np.fromfile(fobj, dt, 1)[0]
+    names = list()
+    for _ in range(entries_to_read):
+        # index of this entry
+        idx = np.fromfile(fobj, dt, 1)[0]
+        # structure name length + string
+        name_length = np.fromfile(fobj, dt, 1)[0]
+        name = np.fromfile(fobj, "|S%d" % name_length, 1)[0]
+        names.append(name)
+        # RGBT
+        ctab[idx, :4] = np.fromfile(fobj, dt, 4)
+
+    return ctab, names
     
 def _fread3(fobj):
     """Read a 3-byte int from an open binary file object

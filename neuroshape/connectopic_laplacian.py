@@ -17,12 +17,12 @@ Usual usage:
 
 import nibabel as nib
 import numpy as np
-from scipy.signal import detrend
 from scipy.ndimage import gaussian_filter
 from scipy.spatial.distance import pdist, squareform
 from scipy.sparse.csgraph import laplacian
 from numpy.linalg import svd
 from numpy.linalg import eigh
+from neuroshape.utils.normalize_data import normalize_data
 import os
 from argparse import ArgumentParser
 from nilearn import image, masking
@@ -139,12 +139,6 @@ mat2nii(new_data, [folder, '/', basename, '_filtered.nii'], size(new_data), 32, 
     print("Saving filtered file to {}".format(output_filename))
     
     return output_filename
-
-def normalize_data(data):
-    data_normalized = np.subtract(data, np.mean(data, axis=0))
-    data_normalized = np.divide(data_normalized, np.std(data_normalized, axis=0))
-    
-    return data_normalized
 
 def compute_similarity(img_input, img_roi, img_mask):
     data_msk = masking.apply_mask(img_input, img_mask)
@@ -374,7 +368,7 @@ def connectopic_laplacian(data_input_filename, data_roi_filename, mask_filename,
         
         
     
-    # save figures TODO
+    # TODO save figures
     
 
 

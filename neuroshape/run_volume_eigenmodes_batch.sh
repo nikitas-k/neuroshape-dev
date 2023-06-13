@@ -67,38 +67,40 @@
 #
 #   These values are intended to be used to override any values set
 #   directly within this script file
-get_batch_options() {
-	local arguments=("$@")
 
-	unset command_line_specified_study_folder
+get_batch_options() {
+    local arguments=("$@")
+
+    unset command_line_specified_study_folder
 	unset command_line_specified_subj
 	unset command_line_specified_structure
+	unset command_line_specified_FreeSurfer_folder
 	unset command_line_specified_num_modes
 	unset command_line_specified_normalization_type
 	unset command_line_specified_normalization_factor
 
-	local index=0
-	local numArgs=${#arguments[@]}
-	local argument
+    local index=0
+    local numArgs=${#arguments[@]}
+    local argument
 
-	while [ ${index} -lt ${numArgs} ]; do
-		argument=${arguments[index]}
+    while [ ${index} -lt ${numArgs} ]; do
+        argument=${arguments[index]}
 
-		case ${argument} in
-			--StudyFolder=*)
-				command_line_specified_study_folder=${argument#*=}
-				index=$(( index + 1 ))
-				;;
-            --fs_subjects_dir=*)
-                command_line_specified_FreeSurfer_folder=${argument#*=}
+        case ${argument} in
+            --StudyFolder=*)
+                command_line_specified_study_folder=${argument#*=}
                 index=$(( index + 1 ))
                 ;;
-			--Subject=*)
-				command_line_specified_subj=${argument#*=}
-				index=$(( index + 1 ))
-				;;
+            --Subject=*)
+                command_line_specified_subj=${argument#*=}
+                index=$(( index + 1 ))
+                ;;
             --structure=*)
                 command_line_specified_structure=${argument#*=}
+                index=$(( index + 1 ))
+                ;;
+            --fs_subjects_dir=*)
+                command_line_specified_FreeSurfer_folder=${argument#*=}
                 index=$(( index + 1 ))
                 ;;
             --n_modes=*)
@@ -113,15 +115,14 @@ get_batch_options() {
                 command_line_specified_normalization_factor=${argument#*=}
                 index=$(( index + 1 ))
                 ;;
-            			
-			*)
-				echo ""
-				echo "ERROR: Unrecognized Option: ${argument}"
-				echo ""
-				exit 1
-				;;
-		esac
-	done
+	    *)
+		echo ""
+		echo "ERROR: Unrecognized Option: ${argument}"
+		echo ""
+		exit 1
+		;;
+        esac
+    done
 }
 
 main()
@@ -188,7 +189,7 @@ main()
 	fi
 	
 	if [ -n "${command_line_specified_normalization_factor}" ]; then
-		norm="${command_line_specified_normalization_factor}"
+		norm_factor="${command_line_specified_normalization_factor}"
 	fi
 
 	# Report major script control variables to user

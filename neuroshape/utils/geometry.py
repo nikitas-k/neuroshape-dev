@@ -352,8 +352,8 @@ def mesh_and_remove_medial_wall(nifti_input_filename, fs_dir=None, mesh_type='tr
         rh_pial = read_geometry(rh_pial)    
         
         # Load the lh and rh annotation
-        lh_labels, _, lh_names = read_annot('/label/lh.aparc.annot')
-        rh_labels, _, rh_names = read_annot('/label/rh.aparc.annot')
+        lh_labels, _, lh_names = read_annot(fs_dir + '/label/lh.aparc.annot')
+        rh_labels, _, rh_names = read_annot(fs_dir + '/label/rh.aparc.annot')
         
         # Find the medial wall
         lh_medial_wall_label = np.where(lh_names == b'unknown')[0]
@@ -366,6 +366,7 @@ def mesh_and_remove_medial_wall(nifti_input_filename, fs_dir=None, mesh_type='tr
         return new_vertices
         
     except:
+        # do FSL fast implementation
         new_vertices = _remove_medial_wall_no_fs(nifti_input_filename)
         return new_vertices
         

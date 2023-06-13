@@ -16,18 +16,18 @@ fontcolor = 'black'
 
 from neuroshape.nulls.eigensphere import eigenmode_resample
 
-def test_resampling(surface, evals, emodes, n=201, decomp_method='matrix'):
+def test_resampling(surface, evals, emodes, n=201, decomp_method='matrix', normalize=None):
     """
     Compute a single eigensphere resampled surrogate at modes = `n`
     """
     # test resampling
-    new_vertices = eigenmode_resample(surface, evals, emodes, decomp_method=decomp_method)
+    new_vertices = eigenmode_resample(surface, evals, emodes, decomp_method=decomp_method, normalize=normalize)
     
     #plot_surface(new_surface)
 
     return new_vertices
 
-def test_surrogates(surface_filename, n=201, num_surrogates=100):
+def test_surrogates(surface_filename, n=201, num_surrogates=100, normalize=None):
     """
     Compute a number of eigensphere resampled surrogates at modes = `n`
     """
@@ -52,8 +52,11 @@ def test_surrogates(surface_filename, n=201, num_surrogates=100):
     # initialize the surrogate array - compute only the vertices, the faces are the same
     new_surfaces = np.zeros((num_surrogates, coords.shape[0], coords.shape[1]))
     
+    if normalize:
+        normalize = normalize
+    
     for i in range(num_surrogates):
-        new_surfaces[i] = test_resampling(surface, evals, emodes, n=200, decomp_method='regression')
+        new_surfaces[i] = test_resampling(surface, evals, emodes, n=200, decomp_method='regression', normalize=normalize)
     
     return new_surfaces
 

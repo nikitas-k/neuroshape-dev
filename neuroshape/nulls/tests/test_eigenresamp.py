@@ -10,26 +10,29 @@ from lapy.ShapeDNA import compute_shapedna
 import matplotlib.pyplot as plt
 from matplotlib import gridspec, cm
 from nilearn import plotting
+from neuroshape.utils.normalize_data import normalize_data
 
 cmap = plt.get_cmap('bone_r')
 fontcolor = 'black'
 
 from neuroshape.nulls.eigensphere import eigenmode_resample
 
-def test_resampling(surface, evals, emodes, n=201, decomp_method='matrix', normalize=None):
+def test_resampling(surface, data, evals, emodes, n=201, decomp_method='matrix'):
     """
     Compute a single eigensphere resampled surrogate at modes = `n`
     """
     # test resampling
-    new_vertices = eigenmode_resample(surface, evals, emodes, decomp_method=decomp_method, normalize=normalize)
+    surrogate = eigenmode_resample(surface, data, evals, emodes, decomp_method=decomp_method)
     
     #plot_surface(new_surface)
 
-    return new_vertices
+    return surrogate
 
-def test_surrogates(surface_filename, n=201, num_surrogates=100, normalize=None):
+
+def test_surrogates(surface_filename, data, n=201, num_surrogates=100, decomp_method='matrix'):
     """
     Compute a number of eigensphere resampled surrogates at modes = `n`
+    and create surrogate data by reconstruction
     """
     # load surface
     surface = nib.load(surface_filename)
@@ -50,77 +53,72 @@ def test_surrogates(surface_filename, n=201, num_surrogates=100, normalize=None)
     evals = ev['Eigenvalues'][1:]
     
     # initialize the surrogate array - compute only the vertices, the faces are the same
-    new_surfaces = np.zeros((num_surrogates, coords.shape[0], coords.shape[1]))
-    
-    if normalize:
-        normalize = normalize
+    surrogates = np.zeros((num_surrogates, data.shape[0]))
     
     for i in range(num_surrogates):
-        new_surfaces[i] = test_resampling(surface, evals, emodes, n=200, decomp_method='regression', normalize=normalize)
+        surrogates[i] = test_resampling(surface, data, evals, emodes, n=n, decomp_method=decomp_method)
     
-    return new_surfaces
+    return surrogates
 
-def test_plot_surfaces(surface, new_surfaces, n=201, data=None, hemi='left', view='lateral', vmin=None, vmax=None, cmap='bone_r', show=True):
+def test_plot_surrogates(surface, data, surrogates, n=201, hemi='left', view='lateral', cmap='viridis', show=True):
     # plot a number of new surfaces and compare to the original
-    fig = plt.figure(figsize=(20, 7), constrained_layout=False)
+    fig = plt.figure(figsize=(23, 10), constrained_layout=False)
     grid = gridspec.GridSpec(
-        1, 4, left=0., right=1., bottom=0., top=1.0,
-        height_ratios=[1], width_ratios=[1,1,1,1],
+        2, 5, left=0., right=1., bottom=0., top=1.0,
+        height_ratios=[0.6,.5], width_ratios=[1.,1.,1.,1.,1.],
         hspace=0.0, wspace=0.0)
     
     cmap = plt.get_cmap(cmap)
     
     i = 0
     # plot original surface
-    orig_vertices = surface.darrays[0].data
-    orig_faces = surface.darrays[1].data
-    orig_mesh = (orig_vertices, orig_faces)
+    vertices = surface.darrays[0].data
+    faces = surface.darrays[1].data
+    mesh = (vertices, faces)
     
-    if data:
-        vmin = np.min(data)
-        vmax = np.max(data)
+    data_norm = normalize_data(data)
+    
+    vmin = np.min(data_norm)
+    vmax = np.max(data_norm)
     
     ax = fig.add_subplot(grid[i], projection='3d')
-    plotting.plot_surf(orig_mesh, data, view=view, vmin=vmin, vmax=vmax,
+    plotting.plot_surf(mesh, data_norm, view=view, vmin=vmin, vmax=vmax,
                        cmap=cmap, avg_method='mean', 
                        axes=ax)
     
     ax = fig.add_subplot(grid[i])
     ax.axis('off')
-    ax.text(0.5, 0.1, 'Original surface', ha='center', fontdict={'fontsize':30})
+    ax.text(0.5, 0.1, 'Original map', ha='center', fontdict={'fontsize':30})
     
     # add title
-    label = f'Resampled surfaces at {n-1} modes'
+    label = f'Resampled maps at {n-1} modes'
     ax = fig.add_subplot(grid[i+1])
     ax.axis('off')
-    ax.text(1., 0.9, label, ha='center', fontdict={'fontsize':30})
+    ax.text(1.2, 0.9, label, ha='center', fontdict={'fontsize':30})
+    
+    # normalize surrogates for plotting
+    surrogates_norm = normalize_data(surrogates)
     
     i += 1
     
-    surfs = np.random.randint(0, new_surfaces.shape[0], 3)
-    
-    for surf in surfs:
-        # new mesh
-        mesh = (new_surfaces[surf], orig_faces)
-        
+    for surr in range(surrogates_norm.shape[0]-1):
         ax = fig.add_subplot(grid[i], projection='3d')
-        plotting.plot_surf(mesh, data, view=view, vmin=vmin,
+        plotting.plot_surf(mesh, surrogates_norm[surr], view=view, vmin=vmin,
                            vmax=vmax, cmap=cmap, avg_method='mean',
                            axes=ax)
         
         ax = fig.add_subplot(grid[i])
         ax.axis('off')
-        ax.text(0.5, 0.1, f'Resampled surface {surf}', ha='center', fontdict={'fontsize':30})
+        ax.text(0.5, 0.1, f'Resampled map {surr+1}', ha='center', fontdict={'fontsize':30})
         
         i += 1
-        
-    # if data plot colorbar
-    if data:
-        cax = plt.axes([1.01, 0.3, 0.03, 0.3])
-        cbar = fig.colorbar(cm.ScalarMappable(norm=None, cmap=cmap), cax=cax)
-        cbar.set_ticks([])
-        cbar.ax.set_title(f'{vmax:.2f}', fontdict={'fontsize':30, 'color':fontcolor}, pad=20)
-        cbar.ax.set_xlabel(f'{vmax:.2f}', fontdict={'fontsize':30, 'color':fontcolor}, labelpad=20)
+
+    # colorbar
+    cax = plt.axes([1.03, 0.3, 0.03, 0.3])
+    cbar = fig.colorbar(cm.ScalarMappable(norm=None, cmap=cmap), cax=cax)
+    cbar.set_ticks([])
+    cbar.ax.set_title(f'{vmax:.2f}', fontdict={'fontsize':30, 'color':fontcolor}, pad=20)
+    cbar.ax.set_xlabel(f'{vmin:.2f}', fontdict={'fontsize':30, 'color':fontcolor}, labelpad=20)
         
     if show is True:
         plt.show()

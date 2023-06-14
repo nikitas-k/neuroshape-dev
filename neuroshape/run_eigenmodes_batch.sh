@@ -3,7 +3,7 @@
 #~ND~FORMAT~MARKDOWN~
 #~ND~START~
 #
-# # run_volume_eigenmodes_batch.sh
+# # run_eigenmodes_batch.sh
 #
 # ## Copyright Notice
 #
@@ -21,8 +21,9 @@
 #
 # ## Description:
 #
-# Example script for running the connectopic Laplacian python script
-# (connectopic_laplacian.py) over a directory of subjects
+# For extracting surfaces (and volumes) from FreeSurfer's subcortical
+# and cortical structures, and computing a spectral shape descriptor
+# ShapeDNA [1]
 #
 # ## Prerequisites
 #
@@ -46,6 +47,10 @@
 #
 # <!-- References -->
 # [neuroshape] : https://github.com/breakspear/neuroshape
+# [1] : M. Reuter, F.-E. Wolter and N. Peinecke.
+# Laplace-Beltrami spectra as "Shape-DNA" of surfaces and solids.
+# Computer-Aided Design 38 (4), pp.342-366, 2006.
+# http://dx.doi.org/10.1016/j.cad.2005.10.011
 #
 #~ND~END~
 
@@ -54,16 +59,49 @@
 #
 #   Retrieve the following command line parameter values if specified
 #
-#   --StudyFolder= - primary study folder containing subject ID subdirectories
-#   --Subjlist=    - quoted, space separated list of subject IDs on which
-#                    to run the pipeline
+#   Required arguments:
 #
-#   Set the values of the following global variables to reflect command
-#   line specified parameters
+#   --StudyFolder=     - primary study folder containing subject ID subdirectories
+#  
+#   --Subjlist=        - quoted, space separated list of subject IDs on which
+#                        to run the pipeline
 #
-#   command_line_specified_study_folder
-#   command_line_specified_subj_list
-#   command_line_specified_run_local
+#   one of the following:
+#
+#   --asegid=          - Segmentation ID of structure in aseg.mgz (e.g. 11 is 
+#                        Left-Caudate)
+#
+#   --surf=            - lh.pial, rh.pial, lh.white, rh.white, etc. A selection of
+#                        a surface from the ${fs_subjects_dir}/${Subject}/surf
+#
+#   Optional arguments:
+#
+#   --fs_subjects_dir= - Subjects directory (or set via environment $SUBJECTS_DIR)
+#
+#   --outdir=          - Output directory (default: ${StudyFolder}/${Subject}/)
+#
+#   --outevec=         - Name for eigenmode output (default : ${outdir}/${surf}.ev)
+#
+#   Eigenmodes parameters
+# 
+#   --num_modes=       - Number of eigenmodes to compute (default : 50)
+#
+#   --norm_type=       - Normalization type (default 'area')
+#
+#   --norm_factor=     - If ${norm_type} is 'constant', which constant number
+#   
+#   --degree=          - FEM degree (default 1)
+#
+#   --bcond=           - Boundary condition (0=Dirichlet, 1=Neumann default)
+#
+#   --evals            - Additionally compute eigenvalues
+#
+#   --ignorelq         - Ignore low quality in input mesh
+#
+#   --dotet            - Compute tetrahedral mesh instead of triangular mesh
+#
+#   --sparam "<param>" - Quoted, space-separated list of additional parameters 
+#                        for shapeDNA-tria
 #
 #   These values are intended to be used to override any values set
 #   directly within this script file
@@ -73,12 +111,20 @@ get_batch_options() {
 
     unset command_line_specified_study_folder
 	unset command_line_specified_subj
-	unset command_line_specified_label_lh
-	unset command_line_specified_label_rh
+	unset command_line_specified_asegid
+	unset command_line_specified_surf
 	unset command_line_specified_FreeSurfer_folder
+	unset command_line_specified_outdir
+	unset command_line_specified_outevec
 	unset command_line_specified_num_modes
 	unset command_line_specified_normalization_type
 	unset command_line_specified_normalization_factor
+	unset command_line_specified_degree
+	unset command_line_specified_bcond
+	unset command_line_specified_evals
+	unset command_line_specified_ignorelq
+	unset command_line_specified_dotet
+	unset command_line_specified_sparam
 
     local index=0
     local numArgs=${#arguments[@]}
@@ -96,16 +142,24 @@ get_batch_options() {
                 command_line_specified_subj=${argument#*=}
                 index=$(( index + 1 ))
                 ;;
-            --label_lh=*)
-                command_line_specified_label_lh=${argument#*=}
+            --asegid=*)
+                command_line_specified_asegid=${argument#*=}
                 index=$(( index + 1 ))
                 ;;
-            --label_rh=*)
-                command_line_specified_label_rh=${argument#*=}
+            --surf=*)
+                command_line_specified_surf=${argument#*=}
                 index=$(( index + 1 ))
                 ;;
             --fs_subjects_dir=*)
                 command_line_specified_FreeSurfer_folder=${argument#*=}
+                index=$(( index + 1 ))
+                ;;
+            --outdir=*)
+                command_line_specified_outdir=${argument#*=}
+                index=$(( index + 1 ))
+                ;;
+            --outevec=*)
+                command_line_specified_outevec=${argument#*=}
                 index=$(( index + 1 ))
                 ;;
             --n_modes=*)
@@ -120,6 +174,30 @@ get_batch_options() {
                 command_line_specified_normalization_factor=${argument#*=}
                 index=$(( index + 1 ))
                 ;;
+            --degree=*)
+                command_line_specified_degree=${argument#*=}
+                index=$(( index + 1 ))
+                ;;
+            --bcond=*)
+                command_line_specified_bcond=${argument#*=}
+                index=$(( index + 1 ))
+                ;;
+            --evals)
+                command_line_specified_evals=${argument#*}
+                index=$(( index + 1 ))
+                ;;
+            --ignorelq)
+                command_line_specified_ignorelq=${argument#*}
+                index=$(( index + 1 ))
+                ;;
+            --dotet)
+                command_line_specified_dotet=${argument#*}
+                index=$(( index + 1 ))
+                ;;
+            --sparam=*)
+                command_line_specified_normalization_factor=${argument#*=}
+                index=$(( index + 1 ))
+                ;;            
 	    *)
 		echo ""
 		echo "ERROR: Unrecognized Option: ${argument}"
@@ -162,12 +240,11 @@ main()
 	sub-4052 sub-4053 sub-4057 sub-4058 sub-4059 sub-4063 sub-4064 \
 	sub-4065 sub-4069 sub-4071 sub-4072 sub-4075 sub-4088 sub-4091"                                # Space delimited list of subject IDs
 
-    label_lh="11 12 26"
-    label_rh="50 51 58"
+    asegid=11
     n_modes=31
     norm="none"
     norm_factor=1
-    hemispheres="lh rh"
+    #hemispheres="lh rh"
     
 	# Use any command line specified options to override any of the variable settings above
 	if [ -n "${command_line_specified_study_folder}" ]; then

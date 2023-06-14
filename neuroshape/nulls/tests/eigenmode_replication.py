@@ -13,11 +13,12 @@ import numpy as np
 from lapy.ShapeDNA import compute_shapedna
 from lapy import TriaMesh
 from scipy.stats import pearsonr
-from nibabel import nib
+import nibabel as nib
 from argparse import ArgumentParser
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import seaborn as sns
+from neuroshape.utils.eigen import _get_eigengroups
 
 def calc_eigenmodes(surface_filename, n=500):
     surface = nib.load(surface_filename)
@@ -38,12 +39,12 @@ def partition_eigenmodes(emodes, partitions=2):
     # partition the eigenmodes based on the fraction of each eigenmode
     # across the cortex
     
-    split_emodes = np.zeros((partitions, emodes.shape[0] // partitions, emodes.shape[1]))
+    split_emodes = np.zeros((partitions, emodes.shape[0], emodes.shape[1] // partitions))
     
     prev = 0
     for partition in range(partitions):
-        number = emodes.shape[0] // partition
-        split_emodes[partition, :] = emodes[prev:number]
+        number = emodes.shape[1] * (partition + 1) // partitions
+        split_emodes[partition, :] = emodes[:, prev:number]
         prev += number
     
     return split_emodes
@@ -55,31 +56,42 @@ def reconstruct_map(mapping, emodes):
     
     partitions = emodes.shape[0]
     
-    coeffs = np.zeros((partitions, emodes.shape[2]))
+    coeffs = np.zeros((partitions, emodes.shape[1]))
     
     prev = 0
     for partition in range(partitions):
-        number = mapping.shape[0] // partitions
+        number = mapping.shape[0] * (partition + 1) // partitions
         split_mapping = mapping[prev:number]
         prev += number
         
         # compute reconstruction with matrix multiplication, otherwise use regression
-        try:
-            coeffs[partition] = np.linalg.solve(emodes[partition].T @ emodes[partition], emodes[partition].T @ split_mapping)
-        except:
-            coeffs[partition] = np.linalg.lstsq(emodes[partition], split_mapping, rcond=None)[0]
+        #try:
+        coeffs[partition] = np.linalg.solve(emodes[partition] @ emodes[partition].T, emodes[partition] @ split_mapping)
+        #except:
+            #coeffs[partition] = np.linalg.lstsq(emodes[partition].T, split_mapping, rcond=None)[0]
     
     return coeffs
 
 def corr_coeffs_eigengroup(coeffs, emodes):
     # correlate the coefficients within each eigengroup
     
-    corr = np.zeros((coeffs.shape[0], coeffs.shape[0]))
+    groups = _get_eigengroups(emodes.T)
     
+    corr_in_groups = np.zeros((coeffs.shape[0], coeffs.shape[0], len(groups)))
+    
+    k = 0
     for i in range(coeffs.shape[0]):
         for j in range(i):
-            corr[i,j] = pearsonr(coeffs[i], coeffs[j])
-    
+            for group in groups:
+                # skip first one
+                if len(group) == 1:
+                    continue
+                corr_in_groups[i,j,k] = pearsonr(coeffs[i, group], coeffs[j, group])[0]
+                if corr_in_groups[i,j,k] < 0.:
+                    corr_in_groups[i,j,k] = pearsonr(coeffs[i, group], -coeffs[j, group])[0]
+                
+                k += 1
+                
     # plot correlation
     cmap = plt.get_cmap('Reds')
     
@@ -108,8 +120,6 @@ def main(raw_args=None):
     parser.add_argument("--num_partitions", default=2, help="Number of partitions to divide the cortex into (does this evenly)")
     parser.add_argument("--num_modes", default=200, help="Number of modes to reconstruct the original mapping with")
     
-    
-
 if __name__ == '__main__':
     # run
     main()

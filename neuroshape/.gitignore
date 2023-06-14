@@ -1,0 +1,7 @@
+*build*
+*__pycache*
+*.pyc
+dist*
+*.egg*
+*.so
+*.DS*

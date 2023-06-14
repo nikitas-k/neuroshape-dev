@@ -30,6 +30,7 @@ from subprocess import Popen
 from neuroshape.eta import eta_squared
 from neuroshape.euler import euler_threshold
 from os.path import split
+import networkx as nx
 
 os_path = dict(os.environ).get('PATH')
 
@@ -173,26 +174,65 @@ def thresh(w, s):
     # # find FWHM of matrix
     # fwhm = estimate_fwhm(w)
     # # calculate resel count using FWHM
-    num_resels = 256 #resel_count(w, fwhm) DO 256 FOR NOW
-    # compute optimal threshold based on euler characteristic
-    threshold = euler_threshold(w, num_resels)
-    w_thresh = w <= threshold
-    binary = w_thresh > 0.
-    s_thresh = np.zeros_like(s)
-    s_thresh[binary] = s[binary]
-    n_edges = np.sum(np.size(s_thresh > 0.))
-    n_nodes = s_thresh.shape
-    density = 2.0*n_edges / np.prod(n_nodes)
+    # num_resels = 256 #resel_count(w, fwhm) DO 256 FOR NOW
+    # # compute optimal threshold based on euler characteristic
+    # threshold = euler_threshold(w, num_resels)
+    # w_thresh = w <= threshold
+    # binary = w_thresh > 0.
+    # s_thresh = np.zeros_like(s)
+    # s_thresh[binary] = s[binary]
+    # n_edges = np.sum(np.size(s_thresh > 0.))
+    # n_nodes = s_thresh.shape
+    # density = 2.0*n_edges / np.prod(n_nodes)
     
-    return s_thresh, density
+    def get_components(graph):
+        return nx.connected_components(graph)
+
+    # assuming w is a 2D numpy array
+    n = w.shape[0]
+    
+    # find upper triangle indices
+    ind_upper = np.triu_indices(n, k=1)
+    
+    # sort w with these indices
+    ind_srt = np.argsort(w[ind_upper])
+    
+    # initialize threshold matrix
+    w_thresh = np.zeros((n, n))
+    
+    # define dns
+    dns = np.linspace(0.001, 1, 1000)
+    
+    # loop through dns
+    for i in range(len(dns)):
+        ttl = int(np.ceil(len(ind_upper[0]) * dns[i]))
+        ind_ttl = ind_srt[:ttl]
+
+    # assign values from s to w_thresh
+    w_thresh[ind_upper[0][ind_ttl], ind_upper[1][ind_ttl]] = s[ind_upper[0][ind_ttl], ind_upper[1][ind_ttl]]
+
+    # symmetrize w_thresh
+    w_thresh_sym = np.maximum(w_thresh, w_thresh.T)
+
+    # get connected components
+    graph = nx.from_numpy_array(w_thresh_sym)
+    comp_sizes = list(get_components(graph))
+
+    if len(comp_sizes) == 1:
+        return w_thresh_sym
 
 def calc_LaplacianMatrix(s, num_gradients):
     # distance mapping
     w = squareform(pdist(s))
     
     # threshold matrix
-    print('Thresholding using maximum Euler characteristic at 256 resels')
-    s_thresh, density = thresh(w, s)
+    print('Thresholding to minimum density needed for graph to remain fully connected')
+    s_thresh = thresh(w, s)
+    
+    n_edges = len(s_thresh.flatten() > 0.)
+    n_nodes = np.prod(s_thresh.shape[0], s_thresh.shape[1])
+    
+    density = 2*n_edges/n_nodes
     
     print('Density of similarity graph needed to remain connected: {:.2f}%'.format(density))
     

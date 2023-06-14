@@ -2,21 +2,90 @@ import numpy as np
 from neuromaps.stats import compare_images
 from neuroshape.utils.swap_single_row import swap_single_row
 from lapy.TriaMesh import TriaMesh
+from lapy.ShapeDNA import compute_shapedna
+import nibabel as nib
 
 """
 Eigenmode helper functions (C) Systems Neuroscience Newcastle &
 Nikitas C. Koussis 2023
 """
 
-def maximise_recon_metric(eigs, y, metric='corr'):
+def compute_eigenmodes(surface, num_modes=200, nonzero=True):
     """
-    Takes a set of eigenmodes `eigs` and a single eigenmode `y` and swaps 
+    Calculates the eigenmodes and eigenvalues of a given surface.
+
+    Parameters
+    ----------
+    surface : nib.GiftiImage() or tuple of (`vertices`, `faces`)
+        Surface to compute LBO
+        
+    num_modes : int
+        Number of [0 > lambda_0 > ... > lambda_n] modes to return, default 200
+        if `nonzero` is True, return only [lambda_0 > ... > lambda_n] modes.
+        
+    nonzero : bool
+        Flag whether to return the first non-zero `num_modes` or not,
+        default True
+
+    Returns
+    -------
+    evals : np.ndarray of (num_modes,)
+        Eigenvalues [0 > lambda_0 > ... > lambda_n] corresponding to the 
+        eigenvalue solution to the Helmholtz equation solved by Finite Element 
+        Method in [1]
+    emodes : np.ndarray of (n_vertices, num_modes)
+        Eigenmodes corresponding to the eigenfunctions solved by Finite Element
+        Method in [1]
+        
+    References
+    ----------
+    [1] M. Reuter, F.-E. Wolter and N. Peinecke.
+    Laplace-Beltrami spectra as "Shape-DNA" of surfaces and solids.
+    Computer-Aided Design 38 (4), pp.342-366, 2006.
+    http://dx.doi.org/10.1016/j.cad.2005.10.011
+
+    """
+    
+    if isinstance(surface, nib.GiftiImage):
+        coords, faces = (surface.darrays[0].data, surface.darrays[1].data)
+        
+    if type(surface) == tuple:
+        coords, faces = surface
+        
+    if not isinstance(coords, np.ndarray) or not isinstance(faces, np.ndarray):
+        raise ValueError("Input surface must be a tuple or nib.GiftiImage class with two arrays `vertices` and `faces`")
+    if coords.shape[1] != faces.shape[1] and coords.shape[1] != 3:
+        # try transpose?
+        if coords.shape[0] == faces.shape[1]:
+            coords = coords.T
+        else:
+            raise ValueError("Input surface has incorrect number of dimensions, must be 3-D")
+            
+    # make surface a TriaMesh
+    tria = TriaMesh(coords, faces)
+    
+    # compute shapedna
+    ev = compute_shapedna(tria, k=num_modes+1)
+    
+    if nonzero is True:
+        evals = ev['Eigenvalues'][1:]
+        emodes = ev['Eigenmodes'][:, 1:]
+    
+    else:
+        evals = ev['Eigenvalues']
+        emodes = ev['Eigenmodes']
+    
+    return evals, emodes
+
+def maximise_recon_metric(emodes, y, metric='corr'):
+    """
+    Takes a set of eigenmodes `emodes` and a single eigenmode `y` and swaps 
     eigenmodes within an eigengroup to maximise `corr` in a
     reconstructed map of `y`. Other metrics are not implemented.
 
     Parameters
     ----------
-    eigs : (N,M) np.ndarray
+    emodes : (N,M) np.ndarray
         Eigenmode array to swap eigenmodes within eigengroups with N 
         eigenmodes and M vertices.
     y : (M,) or (M,1) or (1,M) np.ndarray
@@ -26,7 +95,7 @@ def maximise_recon_metric(eigs, y, metric='corr'):
 
     Returns
     -------
-    new_eigs : (N,M) np.ndarray
+    new_emodes : (N,M) np.ndarray
         Eigenmode array that maximises correlation within eigengroups.
     metric_out : float
         Maximized metric value
@@ -41,30 +110,30 @@ def maximise_recon_metric(eigs, y, metric='corr'):
     if metric != 'corr':
         raise NotImplementedError('{} is not implemented yet'.format(str(metric)))
         
-    # check if y and eigs in proper orientation
-    if not isinstance(eigs, np.ndarray) or not isinstance(y, np.ndarray):
-        raise TypeError('Eigenmodes and functional maps must be array-like, got type {}, and {}'.format(type(eigs),type(y)))
-    if eigs.ndim != 2 or y.ndim != 1:
-        raise ValueError('Eigenmodes must be 2-D and functional map must be 1-D, got {}D and {}D'.format(eigs.ndim, y.ndim))
-    if eigs.shape[1] != y.shape[0]:
-        if eigs.T.shape[1] == y.shape[0]:
-            eigs = eigs.T
+    # check if y and emodes in proper orientation
+    if not isinstance(emodes, np.ndarray) or not isinstance(y, np.ndarray):
+        raise TypeError('Eigenmodes and functional maps must be array-like, got type {}, and {}'.format(type(emodes),type(y)))
+    if emodes.ndim != 2 or y.ndim != 1:
+        raise ValueError('Eigenmodes must be 2-D and functional map must be 1-D, got {}D and {}D'.format(emodes.ndim, y.ndim))
+    if emodes.shape[1] != y.shape[0]:
+        if emodes.T.shape[1] == y.shape[0]:
+            emodes = emodes.T
         else:
             raise RuntimeError('Eigenmodes and functional maps must be able to be matrix multiplied, fix')
     
-    groups = _get_eigengroups(eigs)
+    groups = _get_eigengroups(emodes)
     
     # iterative swapping of eigenmodes within eigengroup to maximise metric   
-    new_eigs = find_optimum_eigengroups(eigs, y, groups)
+    new_emodes = find_optimum_eigengroups(emodes, y, groups)
     
-    return new_eigs
+    return new_emodes
 
 
-def _get_eigengroups(eigs):
+def _get_eigengroups(emodes):
     """
     Helper function to find eigengroups
     """
-    lam = eigs.shape[1] # number of eigenmodes
+    lam = emodes.shape[1] # number of eigenmodes
     l = np.floor((lam-1)/2).astype(int)    
     if lam == 1:
         return np.asarray([0])
@@ -85,24 +154,24 @@ def _get_eigengroups(eigs):
         i = ii
 
 
-def find_optimum_eigengroups(eigs, y, groups, previous_corr=0., tol=0.001):
+def find_optimum_eigengroups(emodes, y, groups, previous_corr=0., tol=0.001):
     #copy original array and transpose for right shape
-    eigs_ = eigs.T
+    emodes_ = emodes.T
     if len(groups) == 2:
         if len(groups[0]) < 2:
-            return eigs_
+            return emodes_
     
-    eigs_swapped = np.vstack(swap_single_row(eigs_[:, groups[i]]) for i in range(len(groups)))
-    next_betas = np.matmul(eigs_swapped, y)
-    next_recon = np.matmul(next_betas.T, eigs_swapped).reshape(-1,)
+    for group in groups:
+        emodes_swapped = np.vstack(swap_single_row(emodes_[:, group]))
+    
+    next_betas = np.matmul(emodes_swapped.T, y)
+    next_recon = np.matmul(next_betas.T, emodes_swapped).reshape(-1,)
     next_corr = compare_images(y, next_recon)
     
-    try:
-        if (next_corr - previous_corr) > tol:
-            return eigs_.T
-    except:
-        return eigs_.T
-    eigs_ = eigs_swapped
+    if (next_corr - previous_corr) > tol:
+        return emodes_.T
+
+    emodes_ = emodes_swapped
     previous_corr = next_corr
     
 

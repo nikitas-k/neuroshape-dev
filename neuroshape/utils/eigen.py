@@ -106,7 +106,36 @@ def find_optimum_eigengroups(eigs, y, groups, previous_corr=0., tol=0.001):
     previous_corr = next_corr
     
 
-def reconstruct_surface(surface, eigenmodes, n=100, normalize='area', norm_factor=1, method=None):
+def reconstruct_data(coeffs, eigenmodes, n=100):
+    """
+    Reconstruct a dataset of `n_vertices` given a set of eigenmodes and coeffs
+    conditioned on data using ordinary least squares (OLS)
+
+    Parameters
+    ----------
+    coeffs : np.ndarray of shape (M,)
+        Coefficients output from fitting OLS
+    eigenmodes : np.ndarray of shape (n_vertices, M)
+        Eigenmodes of `n_vertices` by number of eigenvalues M
+    n : int (default 100)
+        Number of eigenmodes to use for reconstruction
+
+    Returns
+    -------
+    new_data : np.ndarray of (n_vertices,)
+        Reconstructed data
+
+    """
+    
+    eigenmodes = eigenmodes[:,:n]
+    coeffs = coeffs[:n].reshape(-1, 1)
+    
+    new_data = np.matmul(eigenmodes, coeffs)
+    
+    return new_data.squeeze()
+    
+
+def reconstruct_surface(surface, eigenmodes, n=100, normalize='area', norm_factor=1, method='matrix'):
     """
     Reconstruct a surface of `n_vertices` given a set of eigenmodes
 
@@ -214,21 +243,20 @@ def eigen_decomposition(data, eigenmodes, method='matrix'):
     
     """
     
-    N, P = data.shape
-    _, M = eigenmodes.shape
+    if data.ndim > 1:
+        N, P = data.shape
+        _, M = eigenmodes.shape
     
     if method == 'matrix':
         coeffs = np.linalg.solve((eigenmodes.T @ eigenmodes), (eigenmodes.T @ data))
-    
-    elif method == 'matrix_separate':
-        coeffs = np.zeros((M, P))
-        for p in range(P):
-            coeffs[:, p] = np.linalg.solve((eigenmodes.T @ eigenmodes), (eigenmodes.T @ data[:, p].reshape(-1,1)))
             
     elif method == 'regression':
         coeffs = np.zeros((M, P))
         for p in range(P):
             coeffs[:, p] = np.linalg.lstsq(eigenmodes, data[:, p], rcond=None)[0]
+            
+    else:
+        raise ValueError("Accepted methods for decomposition are 'matrix', and 'regression'")
                 
     return coeffs
     

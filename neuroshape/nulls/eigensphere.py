@@ -6,10 +6,11 @@ Eigenmode resampling on the cortex
 
 from neuroshape.utils.eigen import (
     _get_eigengroups,
-    reconstruct_surface,
+    eigen_decomposition,
     transform_to_spheroid,
     transform_to_ellipsoid,
     resample_spheroid,
+    reconstruct_data,
     )
 
 import numpy as np
@@ -30,14 +31,13 @@ norm_types = [
 global methods
 methods = [
     'matrix',
-    'matrix_separate',
     'regression',
     ]
 
-def eigenmode_resample(surface, evals, emodes, angles=None, normalize='area', 
-                         decomp_method='matrix', norm_factor=1):
+def eigenmode_resample(surface, data, evals, emodes, angles=None, decomp_method='matrix'):
     """
-    Resample the hypersphere bounded by the eigengroups contained within `emodes`.
+    Resample the hypersphere bounded by the eigengroups contained within `emodes`,
+    and reconstruct the data using coefficients conditioned on the original data
     Based on the degenerate solutions of solving the Laplace-Beltrami operator 
     on the cortex. The power spectrum is perfectly retained (the square of the 
     eigenvalues).
@@ -68,8 +68,8 @@ def eigenmode_resample(surface, evals, emodes, angles=None, normalize='area',
         - make the new unit vectors orthonormal using QR decomposition
         - return the new eigenmodes of that eigengroup until all eigengroups
             are computed
-        - reconstruct the new surface using the new eigenmodes and normalize
-            the new vertices to avoid weirdness and discontinuities
+        - reconstruct the null data by multiplying the original coefficients
+            by the new eigenmodes
     
     References
     ----------
@@ -103,6 +103,9 @@ def eigenmode_resample(surface, evals, emodes, angles=None, normalize='area',
         Surface to resample of surface.darrays[0].data of shape (n_vertices, 3)
         and surface.darrays[1].data of shape (n_faces, 3). Must be a single
         hemisphere or bounded surface.
+        
+    data : np.ndarray of shape (n_vertices,)
+        Empirical data to resample
         
     evals : np.ndarray of shape (n,)
         Eigenvalues corresponding to the number of eigenmodes n in `emodes`
@@ -164,16 +167,16 @@ def eigenmode_resample(surface, evals, emodes, angles=None, normalize='area',
         raise ValueError("Input surface must be of nibabel.GiftiImage class")
     if emodes.shape[1] >= surface.darrays[0].data.shape[0]:
         raise ValueError("Number of eigenmodes must be less than the number of vertices on the surface")
-    if normalize is not None:
-        if normalize in norm_types:
-            normalize = normalize
-        else:
-            raise ValueError("Normalization type must be 'constant', 'number', 'volume', 'area'")
+    # if normalize is not None:
+    #     if normalize in norm_types:
+    #         normalize = normalize
+    #     else:
+    #         raise ValueError("Normalization type must be 'constant', 'number', 'volume', 'area'")
     if decomp_method is not None:
         if decomp_method in methods:
             method = decomp_method
         else:
-            raise ValueError("Eigenmode decomposition method must be 'matrix', 'matrix_separate', 'regression'")
+            raise ValueError("Eigenmode decomposition method must be 'matrix' or 'regression'")
     # if not given angles
     if angles is None:
         angles = np.random.random_sample(size=emodes.shape[1] - 1) * np.pi
@@ -221,20 +224,24 @@ def eigenmode_resample(surface, evals, emodes, angles=None, normalize='area',
         new_modes[:, group] = transform_to_ellipsoid(group_evals, group_new_modes)
     
     # reconstruct the new surface
-    if normalize == 'constant':
-        if norm_factor > 0.:
-            new_surface = reconstruct_surface(surface, new_modes, normalize=normalize, norm_factor=norm_factor, method=method)
-        else:
-            raise ValueError("Normalization factor must be greater than zero")
-    else:
-        new_surface = reconstruct_surface(surface, new_modes, n=new_modes.shape[1], normalize=normalize, method=method)
+    # if normalize == 'constant':
+    #     if norm_factor > 0.:
+    #         new_surface = reconstruct_surface(surface, new_modes, normalize=normalize, norm_factor=norm_factor, method=method)
+    #     else:
+    #         raise ValueError("Normalization factor must be greater than zero")
+    # else:
+    #     new_surface = reconstruct_surface(surface, new_modes, n=new_modes.shape[1], normalize=normalize, method=method)
+    
+    coeffs = eigen_decomposition(data, emodes, method=method)
             
-    return new_surface
+    surrogate_data = reconstruct_data(coeffs, new_modes, n=new_modes.shape[1])
+    
+    return surrogate_data
 
 
-def plot_surface(surface, data=None, hemi='left', view='lateral', cmap='gray', show=True):
+def plot_data(surface, data=None, hemi='left', view='lateral', cmap='gray', show=True):
     """
-    Plots a surface using nilearn.plotting, returns fig and ax handles
+    Plots a data map using nilearn.plotting, returns fig and ax handles
     from matplotlib.pyplot for further use. Can also plot values on the
     surface by input to `data`.
 

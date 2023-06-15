@@ -239,7 +239,7 @@ def eigenmode_resample(surface, data, evals, emodes, angles=None, decomp_method=
     return surrogate_data
 
 
-def plot_data(surface, data=None, hemi='left', view='lateral', cmap='gray', show=True):
+def plot_data(surface, data, hemi='left', view='lateral', cmap='gray', show=True):
     """
     Plots a data map using nilearn.plotting, returns fig and ax handles
     from matplotlib.pyplot for further use. Can also plot values on the
@@ -274,19 +274,9 @@ def plot_data(surface, data=None, hemi='left', view='lateral', cmap='gray', show
     
     # get colormap
     cmap = plt.get_cmap(cmap)
-    
-    # check if data
-    if data is not None:
-        if data.shape != surface.darrays[0].data.shape[0]:
-            raise ValueError("Number of data points must be the same as the number of surface vertices")
+    vmin = np.min(data)
+    vmax = np.max(data)
         
-        vmin = np.min(data)
-        vmax = np.max(data)
-        
-    else:
-        vmin = None
-        vmax = None
-    
     # plot surface
     ax = fig.add_subplot(projection='3d')
     plotting.plot_surf(mesh, surf_map=data, hemi=hemi, view=view, 

@@ -94,7 +94,7 @@ def test_plot_surrogates(surface, data, surrogates, n=201, hemi='left', view='la
     label = f'Resampled maps at {n-1} modes'
     ax = fig.add_subplot(grid[i+1])
     ax.axis('off')
-    ax.text(1.2, 0.9, label, ha='center', fontdict={'fontsize':30})
+    ax.text(1.5, 1., label, ha='center', fontdict={'fontsize':30})
     
     # normalize surrogates for plotting
     surrogates_norm = normalize_data(surrogates)
@@ -114,7 +114,7 @@ def test_plot_surrogates(surface, data, surrogates, n=201, hemi='left', view='la
         i += 1
 
     # colorbar
-    cax = plt.axes([1.03, 0.3, 0.03, 0.3])
+    cax = plt.axes([1.04, 0.3, 0.03, 0.6])
     cbar = fig.colorbar(cm.ScalarMappable(norm=None, cmap=cmap), cax=cax)
     cbar.set_ticks([])
     cbar.ax.set_title(f'{vmax:.2f}', fontdict={'fontsize':30, 'color':fontcolor}, pad=20)

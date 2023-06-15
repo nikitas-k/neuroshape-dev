@@ -11,6 +11,7 @@ from nilearn import image
 import numpy as np
 from neuromaps.datasets.atlases import fetch_mni152
 from ants import image_read, registration, apply_transforms
+from scipy.spatial import Delaunay, KDTree
 
 """
 Helper utilities for geometry and registration
@@ -279,107 +280,170 @@ def make_tria_file(nifti_input_filename):
     
     return tria_file
 
-def mesh_and_remove_medial_wall(nifti_input_filename, fs_dir=None, mesh_type='tria'):
-    """
-    Generates a mesh and removes the medial wall when given a FreeSurfer subject directory
-    Requires recon-all to have been completed and for the names of the
-    outputs to not have been modified. If `fs_dir` is NoneType or
-    the annotation files cannot be found, then a naive implementation
-    of FSL fast is performed to remove the medial wall from the vertices
-    of the nifti input.
-    """
+# def mesh_and_remove_medial_wall(nifti_input_filename, fs_dir=None, mesh_type='tria'):
+#     """
+#     Generates a mesh and removes the medial wall when given a FreeSurfer subject directory
+#     Requires recon-all to have been completed and for the names of the
+#     outputs to not have been modified. If `fs_dir` is NoneType or
+#     the annotation files cannot be found, then a naive implementation
+#     of FSL fast is performed to remove the medial wall from the vertices
+#     of the nifti input.
+#     """
     
-    if mesh_type not in ['tria', 'tetra']:
-        raise ValueError("mesh type must be triangular or tetrahedral")
+#     if mesh_type not in ['tria', 'tetra']:
+#         raise ValueError("mesh type must be triangular or tetrahedral")
         
-    nifti_input_file_head, nifti_input_file_tail = os.path.split(nifti_input_filename)
-    nifti_input_file_main, nifti_input_file_ext = os.path.splitext(nifti_input_file_tail)
+#     nifti_input_file_head, nifti_input_file_tail = os.path.split(nifti_input_filename)
+#     nifti_input_file_main, nifti_input_file_ext = os.path.splitext(nifti_input_file_tail)
     
-    # check if nifti is in MNI152 space
-    img = image.load_img(nifti_input_filename)
+#     # check if nifti is in MNI152 space
+#     img = image.load_img(nifti_input_filename)
     
-    if _check_mni(nifti_input_filename) is False:
-        # keep original affine and mask image to return MNI152
-        # registered image
-        img_affine = img.affine
-        img_mni = native_to_mni152(nifti_input_filename)
-        img_mni_filename = nifti_input_file_head + '_mni152' + nifti_input_file_ext
-        print("Saving MNI152-registered input to {}".format(img_mni_filename))
-        nib.save(img_mni, img_mni_filename)
+#     if _check_mni(nifti_input_filename) is False:
+#         # keep original affine and mask image to return MNI152
+#         # registered image
+#         img_affine = img.affine
+#         img_mni = native_to_mni152(nifti_input_filename)
+#         img_mni_filename = nifti_input_file_head + '_mni152' + nifti_input_file_ext
+#         print("Saving MNI152-registered input to {}".format(img_mni_filename))
+#         nib.save(img_mni, img_mni_filename)
         
-    if fs_dir is None:
-        print("FreeSurfer subject directory not given, using FSL fast")
-        new_vertices = _remove_medial_wall_no_fs(nifti_input_filename)
-        return new_vertices
+#     # if fs_dir is None:
+#     #     print("FreeSurfer subject directory not given, using FSL fast")
+#     #     new_vertices = _remove_medial_wall_no_fs(nifti_input_filename)
+#     #     return new_vertices
        
-    # register nifti to FreeSurfer average space
-    img_fs = mni152_to_fsaverage(img_mni)
+#     # register nifti to FreeSurfer average space
+#     img_fs = mni152_to_fsaverage(img_mni)
     
-    # prepare transformation
-    lh, rh = image_fs
-    lh_verts = lh.darrays[0].data.reshape(-1,3)
-    rh_verts = rh.darrays[0].data.reshape(-1,3)
+#     # prepare transformation
+#     lh, rh = img_fs
+#     lh_verts = lh.darrays[0].data.reshape(-1,3)
+#     rh_verts = rh.darrays[0].data.reshape(-1,3)
     
-    # combine the hemispheres into one image
-    verts = np.vstack((lh_verts, rh_verts))
+#     # combine the hemispheres into one image
+#     verts = np.vstack((lh_verts, rh_verts))
     
-    xx, yy, zz = verts.T
+#     xx, yy, zz = verts.T
 
-    points = np.zeros([xx.shape[0],4])
-    points[:,0] = xx
-    points[:,1] = yy
-    points[:,2] = zz
-    points[:,3] = 1
+#     points = np.zeros([xx.shape[0],4])
+#     points[:,0] = xx
+#     points[:,1] = yy
+#     points[:,2] = zz
+#     points[:,3] = 1
 
-    # calculate transformation matrix
-    T = get_tkrvox2ras(img.shape, img.header.get_zooms())
+#     # calculate transformation matrix
+#     T = get_tkrvox2ras(img.shape, img.header.get_zooms())
 
-    # apply transformation
-    points2 = np.matmul(T, np.transpose(points))
+#     # apply transformation
+#     points2 = np.matmul(T, np.transpose(points))
     
-    img_fs_filename = nifti_input_file_head + '_fsaverage' + 
+#     #img_fs_filename = nifti_input_file_head + '_fsaverage' + 
 
-    # generate mesh
-    tria_file = make_tria_file(img_fs)    
+#     # generate mesh
+#     tria_file = make_tria_file(img_fs)    
     
-    # find pial surfaces and annotation files
-    lh_pial = fs_dir + '/surf/lh.pial'
-    rh_pial = fs_dir + '/surf/rh.pial'
+#     # find pial surfaces and annotation files
+#     lh_pial = fs_dir + '/surf/lh.pial'
+#     rh_pial = fs_dir + '/surf/rh.pial'
     
-    try:
-        # Load the lh and rh pial surface
-        lh_pial = read_geometry(lh_pial)
-        rh_pial = read_geometry(rh_pial)    
+#     try:
+#         # Load the lh and rh pial surface
+#         lh_pial = read_geometry(lh_pial)
+#         rh_pial = read_geometry(rh_pial)    
         
-        # Load the lh and rh annotation
-        lh_labels, _, lh_names = read_annot(fs_dir + '/label/lh.aparc.annot')
-        rh_labels, _, rh_names = read_annot(fs_dir + '/label/rh.aparc.annot')
+#         # Load the lh and rh annotation
+#         lh_labels, _, lh_names = read_annot(fs_dir + '/label/lh.aparc.annot')
+#         rh_labels, _, rh_names = read_annot(fs_dir + '/label/rh.aparc.annot')
         
-        # Find the medial wall
-        lh_medial_wall_label = np.where(lh_names == b'unknown')[0]
-        lh_medial_wall_vertices = np.where(lh_labels == lh_medial_wall_label)[0]
+#         # Find the medial wall
+#         lh_medial_wall_label = np.where(lh_names == b'unknown')[0]
+#         lh_medial_wall_vertices = np.where(lh_labels == lh_medial_wall_label)[0]
         
-        # mask out medial wall vertices
+#         # mask out medial wall vertices
         
-        # fix shape of data structure
+#         # fix shape of data structure
         
-        return new_vertices
+#         return new_vertices
         
-    except:
-        # do FSL fast implementation
-        new_vertices = _remove_medial_wall_no_fs(nifti_input_filename)
-        return new_vertices
+#     except:
+#     #     # do FSL fast implementation
+#     #     new_vertices = _remove_medial_wall_no_fs(nifti_input_filename)
+#         return new_vertices
         
+
+
+# def _remove_medial_wall_no_fs(nifti_input_filename):
+#     """
+#     Remove the medial wall using FSL fast and masking out the subcortex
+#     """
+    
+    
+    
+#     return new_vertices
+
+#def compute_geodesic_distances(vertices, ):
+    
+    
     
 
-def _remove_medial_wall_no_fs(nifti_input_filename):
+def nearest_neighbor(P, X, radius=None):
     """
-    Remove the medial wall using FSL fast and masking out the subcortex
+    Find the one-nearest neighbors of vertices in points `P` on another 
+    surface `X` using Delaunay triangulation and KDTree query.
+
+    Parameters
+    ----------
+    P : np.ndarray of shape (N,3)
+        Points to search for within the coordinate set of `X`. `P` can
+        be a single point
+    X : np.ndarray of shape (M,3)
+        Vertices of the surface to search within
+    radius : float
+        Radius to search for nearest neighbors within
+
+    Returns
+    -------
+    nearest_indexes : int
+        Indexes of one-nearest neighbors of vertices in `P`. Note that
+        if two vertices in `X` are the same distance away from a point in `P`,
+        function returns only the first one.
+
     """
     
+    # Create Delaunay triangulation for first surface
+    tri = Delaunay(X)
     
-    
-    return new_vertices
+    # Create tree of vertices to query on
+    kdtree = KDTree(X)
+
+    indices = np.empty(P.shape[0], dtype=int)
+    for i, p in enumerate(P):
+        simplex_index = tri.find_simplex(p)
+        if simplex_index == -1 or (radius is not None and not _is_point_within_radius(p, X[tri.simplices[simplex_index]], radius)):
+            _, nearest_neighbor_index = kdtree.query(p)
+        else:
+            simplex_vertices = X[tri.simplices[simplex_index]]
+            dist = np.linalg.norm(simplex_vertices - p, axis=1)
+            if radius is not None:
+                valid_indices = np.where(dist <= radius)[0]
+                if valid_indices.size == 0:
+                    _, nearest_neighbor_index = kdtree.query(p)
+                else:
+                    nearest_neighbor_index = tri.simplices[simplex_index][valid_indices[np.argmin(dist[valid_indices])]]
+            else:
+                nearest_neighbor_index = tri.simplices[simplex_index][np.argmin(dist)]
+        indices[i] = nearest_neighbor_index
+
+    return indices
+
+
+def _is_point_within_radius(p, vertices, radius):
+    """
+    Check if a point is within a given radius of any vertex in a set of vertices.
+    """
+    return np.any(np.linalg.norm(vertices - p, axis=1) <= radius)
+
 
 def calc_volume(nifti_input_filename):
     """Calculate the physical volume of the ROI in the nifti file.
@@ -785,6 +849,30 @@ def read_geometry(filepath, read_metadata=False, read_stamp=False):
         ret += (create_stamp,)
 
     return ret
+
+def read_label(filepath, read_scalars=False):
+    """Load in a Freesurfer .label file.
+
+    Parameters
+    ----------
+    filepath : str
+        Path to label file.
+    read_scalars : bool, optional
+        If True, read and return scalars associated with each vertex.
+
+    Returns
+    -------
+    label_array : numpy array
+        Array with indices of vertices included in label.
+    scalar_array : numpy array (floats)
+        Only returned if `read_scalars` is True.  Array of scalar data for each
+        vertex.
+    """
+    label_array = np.loadtxt(filepath, dtype=int, skiprows=2, usecols=[0])
+    if read_scalars:
+        scalar_array = np.loadtxt(filepath, skiprows=2, usecols=[-1])
+        return label_array, scalar_array
+    return label_array
 
 def write_label(filepath, vertices, values=None):
     """

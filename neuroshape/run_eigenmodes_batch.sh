@@ -208,13 +208,27 @@ get_batch_options() {
     done
 }
 
+get_abs_filename() {
+  # $1 : relative filename
+  echo "$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
+}
+
+get_abs_dirname() {
+  # $1 : relative directory
+  echo "$(cd "$(dirname "$1")" && pwd)"
+}
+
 main()
 {
 	get_batch_options "$@"
     pipedir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 	# Set variable values that locate and specify data to process
-	StudyFolder="/Volumes/Scratch/functional_integration_psychosis/preprocessed/HCP-EP/LBO/striatum" # Location of Subject folders (named by subjectID)
-	fs_subjects_dir="/Volumes/Scratch/functional_integration_psychosis/preprocessing/HCP-EP/FS"
+	StudyFolder="." # Location of Subject folders (named by subjectID)
+	StudyFolder=get_abs_dirname(${StudyFolder}) # get absolute path
+	
+	# try SUBJECTS_DIR if --fs_subjects_dir not specified
+	fs_subjects_dir=${SUBJECTS_DIR}
+	
 	Subjlist="sub-1001 sub-1002 sub-1003 sub-1005 sub-1006 sub-1009 \
 	sub-1010 sub-1012 sub-1015 sub-1017 sub-1018 sub-1019 sub-1020 \
 	sub-1021 sub-1022 sub-1024 sub-1025 sub-1026 sub-1027 sub-1028 \
@@ -244,6 +258,8 @@ main()
     n_modes=31
     norm="none"
     norm_factor=1
+    # if outdir is unspecified
+    outdir=${StudyFolder}/${Subject}
     #hemispheres="lh rh"
     
 	# Use any command line specified options to override any of the variable settings above

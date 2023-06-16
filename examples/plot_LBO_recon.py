@@ -22,6 +22,7 @@ from pathlib import Path
 import os.path as op
 from neuromaps.datasets.atlases import fetch_atlas
 from neuromaps.stats import compare_images, permtest_metric
+from neuroshape.recon import Recon
 
 # =============================================================================
 # #### Path sourcing ####
@@ -398,4 +399,5 @@ plt.show()
 # #### Subject-wise reconstruction ####
 # =============================================================================
 
-# TODO
+for 
+recon = Recon()

@@ -28,7 +28,6 @@ from argparse import ArgumentParser
 from nilearn import image, masking
 from subprocess import Popen
 from neuroshape.eta import eta_squared
-from neuroshape.euler import euler_threshold
 from os.path import split
 import networkx as nx
 

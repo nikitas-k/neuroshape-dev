@@ -358,7 +358,7 @@ def make_surf(sdir,sid,surf,outdir):
     hemi = splitsurf[0]
     surf = splitsurf[1]
     # map label if necessary
-    coords, faces = read_geometry(get_path_surf(surf))
+    coords, faces = read_geometry(get_path_surf(sdir, sid, surf))
     
     outsurf = os.path.join(outdir, hemi, surf, '.vtk')
     

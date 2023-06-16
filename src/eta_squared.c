@@ -28,20 +28,6 @@
  * 
  */
 
-/* declare main function */
-static PyObject* eta_squared(PyObject* self, PyObject* args);
-
-/*
- * This tells Python what methods this module has
- *
- */
-static PyMethodDef EtaMethods[] = {
-    {"eta_squared",
-        eta_squared,
-        METH_VARARGS, "Compute eta-squared coefficient row-wise of a 2-dimensional array."},
-    {NULL, NULL, 0, NULL}
-};
-
 /*
  * This actually defines the eta squared function for
  * input args from Python.
@@ -54,10 +40,11 @@ static PyObject* eta_squared(PyObject* self, PyObject* args)
     if (!PyArg_ParseTuple(args, "O!", &PyArray_Type, &arr))
         return NULL;
     
-    int num_rows = arr->dimensions[0];
-    int num_cols = arr->dimensions[1];
+    int N = arr->dimensions[0];
+    int p = arr->dimensions[1];
+    
     /* check number of dims and whether data is in correct format */
-    if ( num_rows < num_cols ) {
+    if ( N < p ) {
         printf('ERROR: Number of observations must exceed number of features (is your data transposed?)');
         return NULL;    
     }
@@ -67,72 +54,101 @@ static PyObject* eta_squared(PyObject* self, PyObject* args)
         return NULL;    
     }
     
-    npy_intp dims[2] = {num_rows, num_rows};
+    npy_intp dims[2] = {N, N};
 
     PyArrayObject* oarr = (PyArrayObject*)PyArray_SimpleNew(nd, dims, NPY_DOUBLE);
     if (oarr == NULL)
         return NULL;
 
-    double* data_ptr = PyArray_DATA(arr);
-    double* out_ptr = PyArray_DATA(oarr);
+    double* z = PyArray_DATA(arr);
+    double* eta = PyArray_DATA(oarr);
 
-    double mu_bar = 0.0;
-    double mu_1 = 0.0;
-    int count = 0;
+    double* mu = (double*)malloc(N * p * sizeof(double));
+    double* mu_bar = (double*)malloc(N * sizeof(double));
     
     npy_intp row_stride = PyArray_STRIDE(arr, 0) / sizeof(double);
     npy_intp col_stride = PyArray_STRIDE(arr, 1) / sizeof(double);
+    npy_intp outrow_stride = PyArray_STRIDE(oarr, 0) / sizeof(double);
+    npy_intp outcol_stride = PyArray_STRIDE(oarr, 1) / sizeof(double);
     
-    npy_intp i,j,k;
-
-    // Calculate mu_bar
-    for (i = 0; i < num_rows; i++) {
-        for (k = 0; k < num_rows; k++) {
-            for (j = 0; j < num_cols; j++) {
-                double vali = data_ptr[i * row_stride + j * col_stride];
-                double valk = data_ptr[k * row_stride + j * col_stride];
-                double mu = (vali + valk) / 2.0;
-                mu_1 += mu;
-                count++;
+    for (int i = 0; i < N; i++) {
+        // Calculate mu
+        for (int k = 0; k < p; k++) {
+            double sum = 0.0;
+            for (int j = 0; j < N; j++) {
+                if (j != i)
+                    sum += z[j * row_stride + k * col_stride];
             }
+            mu[k] = (z[i * row_stride + k * col_stride] + sum) / N;
         }
-    }
-    mu_bar = mu_1 / count;
 
-    // Calculate eta-squared coefficients
-    for (i = 0; i < num_rows; i++) {
-        for (k = 0; k < num_rows; k++) {
+
+        // Calculate mu_bar
+        for (int k = 0; k < p; k++) {
+            double sum = 0.0;
+            for (int j = 0; j < N; j++) {
+                sum += z[j * p + k];
+            }
+            mu_bar[k] = sum / N;
+        }
+
+        // Calculate eta_squared
+        for (int j = 0; j < N; j++) {
             double num = 0.0;
             double denom = 0.0;
-            for (j = 0; j < num_cols; j++) {
-                double vali = data_ptr[i * row_stride + j * col_stride];
-                double valk = data_ptr[k * row_stride + j * col_stride];
-                double mu = (vali + valk) / 2.0;
-                double diff_a = vali - mu;
-                double diff_b = valk - mu;
-                double powera = diff_a * diff_a;
-                double powerb = diff_b * diff_b;
-                double diff_bar_a = vali - mu_bar;
-                double diff_bar_b = valk - mu_bar;
-                double powerax = diff_bar_a * diff_bar_a;
-                double powerbx = diff_bar_b * diff_bar_b;
-                num += powera + powerb;
-                denom += powerax + powerbx;
+            for (int k = 0; k < p; k++) {
+                double diff = z[i * row_stride + k * col_stride] - mu[k];
+                num += diff * diff;
+                double diff_bar = z[j * row_stride + k * col_stride] - mu_bar[k];
+                denom += diff_bar * diff_bar;
             }
-            if ( denom == 0.0 ){
-                double eta = 0.0;
-                out_ptr[i*num_rows + k] = eta;
-            } else {
-                double eta = 1.0 - (num / denom);
-                out_ptr[i*num_rows + k] = eta;
-            }
-            
+            eta[j * outrow_stride + i * outcol_stride] = 1.0 - (num / denom);
         }
     }
 
-    Py_DECREF(out_ptr);
+    free(mu);
+    free(mu_bar);
+
     return PyArray_Return(oarr);
 }
+//     // Calculate eta-squared coefficients
+//     for (i = 0; i < num_rows; i++) {
+//         for (k = 0; k < num_rows; k++) {
+//             double num = 0.0;
+//             double denom = 0.0;
+//             for (j = 0; j < num_cols; j++) {
+//                 double vali = data_ptr[i * row_stride + j * col_stride];
+//                 double valk = data_ptr[k * row_stride + j * col_stride];
+//                 double mu = (vali + valk) / 2.0;
+//                 double diff_a = vali - mu;
+//                 double diff_b = valk - mu;
+//                 double powera = diff_a * diff_a;
+//                 double powerb = diff_b * diff_b;
+//                 double diff_bar_a = vali - mu_bar;
+//                 double diff_bar_b = valk - mu_bar;
+//                 double powerax = diff_bar_a * diff_bar_a;
+//                 double powerbx = diff_bar_b * diff_bar_b;
+//                 num += powera + powerb;
+//                 denom += powerax + powerbx;
+//             }
+//             if ( denom == 0.0 ){
+//                 double eta = 0.0;
+//                 out_ptr[i*num_rows + k] = eta;
+//             } else {
+//                 double eta = 1.0 - (num / denom);
+//                 out_ptr[i*num_rows + k] = eta;
+//             }
+//             
+//         }
+//     }
+
+
+static PyMethodDef EtaMethods[] = {
+    {"eta_squared",
+        eta_squared,
+        METH_VARARGS, "Compute eta-squared coefficient row-wise of a 2-dimensional array."},
+    {NULL, NULL, 0, NULL}
+};
 
 static struct PyModuleDef cModPyDem = {
     PyModuleDef_HEAD_INIT,

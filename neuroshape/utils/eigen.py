@@ -107,7 +107,7 @@ def find_optimum_eigengroups(eigs, y, groups, previous_corr=0., tol=0.001):
     previous_corr = next_corr
     
 
-def reconstruct_data(coeffs, eigenmodes, n=100):
+def reconstruct_data(coeffs, eigenmodes, pv=100.0):
     """
     Reconstruct a dataset of `n_vertices` given a set of eigenmodes and coeffs
     conditioned on data using ordinary least squares (OLS)
@@ -118,8 +118,8 @@ def reconstruct_data(coeffs, eigenmodes, n=100):
         Coefficients output from fitting OLS
     eigenmodes : np.ndarray of shape (n_vertices, M)
         Eigenmodes of `n_vertices` by number of eigenvalues M
-    n : int (default 100)
-        Number of eigenmodes to use for reconstruction
+    pv : float (default 100), rounds up to nearest index
+        Percentage of `eigenmodes` to use for reconstruction (default 100%)
 
     Returns
     -------
@@ -127,6 +127,12 @@ def reconstruct_data(coeffs, eigenmodes, n=100):
         Reconstructed data
 
     """
+    
+    if pv == 0.0:
+        raise ValueError("Percentage of modes to use for reconstruction must be greater than 1")
+        
+    _, M = eigenmodes.shape
+    n = int(np.ceil(M * pv / 100))
     
     eigenmodes = eigenmodes[:,:n]
     coeffs = coeffs[:n].reshape(-1, 1)

@@ -104,7 +104,7 @@ OPTIONAL ARGUMENTS
 
 --sdir <name>     Subjects directory (or set via environment $SUBJECTS_DIR)
 
---outdir <name>   Output directory (default: <sdir>/<sid>/brainprint/ )
+--outdir <name>   Output directory (default: <sdir>/<sid>/neuroshape/ )
 
 --outsurf <name>  Name for surface output (with --asegid)
                   (default: aseg.<asegid>.surf )
@@ -118,7 +118,7 @@ OPTIONAL ARGUMENTS
 
 --savenii <name>  Name for nifti output (modes are projected to new volume in freesurfer space)
 
-ShapeDNA parameters (see shapeDNA --help for details):
+ShapeDNA parameters (see shapeDNA [1] for details):
 
 --num <int>       Number of eigenvalues/vectors to compute (default: 50)
 
@@ -129,8 +129,6 @@ ShapeDNA parameters (see shapeDNA --help for details):
 --evec            Additionally compute eigenvectors
 
 --ignorelq        Ignore low quality in input mesh
-
---sparam "<str>"  Additional parameters for shapeDNA-tria
 """
 
 def split_callback(option, opt, value, parser):

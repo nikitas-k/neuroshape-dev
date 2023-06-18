@@ -1,375 +1,312 @@
 import numpy as np
 from joblib import Parallel, delayed
 from brainsmash.utils.dataio import dataio
-from pathlib import Path
-from lapy.ShapeDNA import compute_shapedna
-from lapy import TriaMesh
+import optparse
+
 from neuroshape.utils.checks import is_string_like
-from neuroshape.utils.eigen import compute_eigenmodes, maximise_recon_metric
+from neuroshape.utils.eigen import (
+    compute_eigenmodes, 
+    maximise_recon_metric,
+    eigen_decomposition,
+    )
 from neuromaps.stats import compare_images
 import matplotlib.pyplot as plt
 from matplotlib import gridspec, cm
-
-__all__ = ['Recon']
-
-recon_types = [
-    'up',
-    'short',
-    'long',    
-    ]
+import sys
+import os
+import tempfile
+import errno
 
 cmap = plt.get_cmap('viridis')
 
-class Recon:
+def m_print(message):
     """
-    Description
-    -----------
-    Attempts to reconstruct the given map `y` using LBO eigenmodes `emodes`.
-    If `emodes` do not exist, computes them.
-    
-    Reconstructs the given map `y` by fitting a weighted sum of `emodes` in a
-    GLM-like fashion (i.e., `y` = sum( `beta` * `emodes` ) + error ), using either
-    LU decomposition to solve the normal equation, or if the solution cannot
-    be inverted then uses linear least-squares to calculate the coefficients
-    `beta`.
-    
-    Uses the coefficients `beta` to reconstruct the original data `y` and provides
-    an output of reconstructions and reconstruction accuracies.
-    
-    Parameters
-    ----------
-        See brainsmash.utils.dataio()
-        surface    : list_like, array_like, nib.GiftiImage, string_like or file_like
-            
-                     if array_like : tuple ((n_vertices,3),(n_faces,3)) of np.ndarrays
-                  
-                     if nib.GiftiImage : must have darrays of tuple ((n_vertices, 3), n_faces, 3))
-            
-                     if string_like : string containing path of file to be loaded into
-                     memory. Must have .gii extension, other extensions (e.g., .vtk
-                     meshes) are future implementations.
-            
-                     if file-like : string containing paths of files to be loaded into
-                     memory. Must have .gii extension, other extensions 
-                     (e.g., .vtk meshes) are future implementations.
-            
-        y          : data map to reconstruct of type np.ndarray, file-like, list-like,
-                     or string-like. 
-                     Must have the same number of vertices as `surface`
-                  
-        emodes     : pre-computed eigenmodes, if available, with the same number of
-                     vectors as `surface` has vertices, i.e., computed on
-                     `surface`. If None, this function computes them based on `surface`
-                     using lapy.ShapeDNA
-                  
-        n_modes    : if `emodes` is None, how many modes to compute using shapeDNA.
-                     default is 200.
-                  
-        nonzero    : bool, flag to compute reconstruction using only the first
-                     `n_modes` nonzero modes (ignore the zeroth mode). default True
-                  
-        n_procs    : number of workers to use in `Parallel` for computation. Default is 1.
-        
-        metric     : which metric to use for reconstruction accuracy. Currently only 'corr'
-                     is implemented.
-                  
-        type_recon : which reconstruction type to calculate, accepts 'up', 'short',
-                     'long'. default 'up'.
-                     
-                    Description
-                    -----------
-                    'up'    : compute reconstruction accuracy by starting from
-                              zero modes and increasing modes up to `n_modes`
-                    
-                    'short' : compute reconstruction accuracy by removing short
-                              wavelength modes from `n_modes` down to 0
-                    
-                    'long'  : compute reconstruction accuracy by removing long
-                              wavelength modes from `n_modes` down to 0
-                     
-        maximise   : bool, flag to maximise the reconstruction accuracy by swapping
-                     eigenmodes within eigengroups. default True
-        
+    print message, then flush stdout
     """
-    
-    def __init__(self, y, surface=None, emodes=None, n_modes=200, nonzero=True,
-                     n_procs=1, metric='corr', type_recon='up', maximise=True):
-        
-        self._n_jobs = n_procs
-        if self._n_jobs > 1:
-            self.parallel_flag = True
-            
-        self._data = y
-        
-        # try load surface
-        if surface:
-            self._surface = surface
-            self._vertices, self._coords = dataio(self._surface)
-        
-        # if emodes is given
-        if emodes:
-            evals, emodes = compute_eigenmodes(surface, num_modes, nonzero)
-            
-        # copy evals and emodes
-        self._emodes = emodes
-        self._evals = evals
-                
-        self._n = self._emodes.shape[1]
-        self._metric = metric
-        self._type_recon = type_recon
-        self._maximise = maximise
-        
-    def __call__(self, type_recon):
-        # check if call is in types
-        if type_recon not in recon_types and len(type_recon) > 1:
-            raise ValueError("Reconstruction type to compute must be 'up', 'short', or 'long'")            
-        
-        self._type = type_recon
-        
-        if self._type == 'up':
-            self._function = add_modes
-            modes = []
-            for x in range(1, self._n+1):
-                modes.append(np.arange(x))
-            self._modes = modes
-            
-            if self.parallel_flag is True:
-                recons = np.vstack(
-                            Parallel(self._n_jobs, prefer='threads')(
-                                delayed(self._recon_method)(emodes=x) for x in emodes[self._modes:]))
-            
-            else:
-                recons = np.vstack(_recon_method(emodes=x) for x in emodes[self._modes:])
-            
-        if self._type == 'short':
-            self._function = rem_short_modes
-            modes = []
-            for x in range(1, self._n+1):
-                modes.append(-np.arange(x))
-            self._modes = modes
-            
-            if self.parallel_flag is True:
-                recons = np.vstack(
-                            Parallel(self._n_jobs, prefer='threads')(
-                                delayed(self._recon_method)(emodes=x) for x in emodes[self._modes:]))
-            
-            else:
-                recons = np.vstack(_recon_method(emodes=x) for x in emodes[self._modes:])
-            
-        if self._type == 'long':
-            self._function = rem_long_modes
-            modes = []
-            for x in range(1, self._n+1):
-                modes.append(-np.arange(x))
-            self._modes = modes
-            
-            if self.parallel_flag is True:
-                recons = np.vstack(
-                            Parallel(self._n_jobs, prefer='threads')(
-                                delayed(self._recon_method)(emodes=x) for x in emodes[:self._modes]))
-            
-            else:
-                recons = np.vstack(_recon_method(emodes=x) for x in emodes[:self._modes])
-                    
-        self._recons = recons
-            
-        
-    def _recon_method(self, emodes):
-        """
-        Subfunction used by .__call__() for parallelization purposes
-        """
-        y = self._data
-        metric = self._metric
-        
-        if self._maximise is True:
-            recon = maximise_recon_metric(emodes, y, metric)
-            
-        else:
-            betas = np.matmul(emodes.T, y)
-            recon = np.matmul(betas.T, emodes).reshape(-1,)
-        
-        return recon
-    
-    @property
-    def surface(self):
-        return self._surface
-    
-    @surface.setter
-    def surface(self, x):
-        try:
-            x_ = dataio(x)
-        except:
-            raise ValueError("Check surface")
-        
-        self._surface = x_
-        self._vertices, self._faces = x_
-    
-    @property
-    def data(self):
-        return self._data
-    
-    @data.setter
-    def data(self, x):
-        try:
-            x_ = dataio(x)
-        except:
-            raise ValueError("Could not load data, check input")
-            
-        if x_.shape[0] != self._vertices.shape[0]:
-            raise ValueError("New data must have the same number of vertices as the currently loaded surface. Set the new surface first before setting the new data")
-        self._data = x_
-    
-    @property
-    def plot_recon(self):
-        """plot reconstruction figure and axes handles"""
-        return self.plot_recon
-    
-    @plot.setter
-    def plot_recon(self, x, n, hemi='left', view='lateral'):
-        if x is not None and x != self._type:
-            try:
-                print("New recon type, computing reconstructions for type {}".format(str(x)))
-                recons = self.__call__(x)
-            except (ValueError):
-                raise ValueError("Reconstruction type to plot must be 'up', 'short', or 'long'")
-        else:
-            recons = self._recons
-        
-        if self._recon_corr is None:
-            print("Reconstruction accuracy has not been calculated, computing for data given when initialized")
-            corr = self.recon_accuracy()
-        
-        if n not in range(recons.shape[0]):
-            raise ValueError("Cannot plot reconstruction")
-            
-        # now plot data
-        fig = plt.figure(figsize=(15,9), constrained_layout=False)
-        grid = gridspec.GridSpec(
-            1, 2, left=0., right=1., bottom=0., top=1.,
-            height_ratios=1., width_ratios=[1.,1.],
-            hspace=0.0, wspace=0.0)
-            
-        mesh = (self._vertices, self._faces)
-        data = self._data
-        
-        cmap = self._cmap
-        vmin = np.min(data)
-        vmax = np.max(data)
-        
-        colorbar = False
-        
-        ax = fig.add_subplot(grid[0], projection='3d')
-        plotting.plot_surf(mesh, surf_map=data, hemi=hemi,
-                           view=view, vmin=vmin, vmax=vmax,
-                           colorbar=colorbar, cmap=cmap,
-                           axes=ax)
-        ax.dist = 7
-        # label
-        ax = fig.add_subplot(grid[0])
-        ax.axis('off')
-        ax.text(0.5, 0.5, "Original map", ha="center", fontdict={'fontsize':30})
-        
-        # now plot recon
-        ax = fig.add_subplot(grid[1], projection='3d')
-        plotting.plot_surf(mesh, surf_map=recons[n], hemi=hemi,
-                           view=view, vmin=vmin, vmax=vmax,
-                           colorbar=colorbar, cmap=cmap,
-                           axes=ax)
-        ax.dist = 7
-        #label
-        ax = fig.add_subplot(grid[1])
-        ax.axis('off')
-        ax.text(0.5, 0.5, "Reconstruction", ha="center", fontdict={'fontsize':30})
-        
-        # now colorbar
-        cax = plt.axes([0.8, 0.32, 0.03, 0.4])
-        cbar = fig.colorbar(cm.ScalarMappable(norm=None, cmap=cmap), cax=cax)
-        cbar.set_ticks([])
-        cbar.ax.set_title('max', fontdict={'fontsize':30}, pad=20)
-        cbar.ax.set_xlabel('min', fontdict={'fontsize':30}, labelpad=20)
-        
-        plt.show()
-        
-        
-    @property
-    def plot_accuracy(self):
-        return self._plot_acc
-    
-    @plot_accuracy.setter
-    def plot_accuracy(self, x):
-        if x is not None and x != self._type:
-            try:
-                print("New recon type, computing reconstructions for type {}".format(str(x)))
-                recons = self.__call__(x)
-            except (ValueError):
-                raise ValueError("Reconstruction type to plot must be 'up', 'short', or 'long'")
-    
-        else:
-            recons = self._recons
-        
-        if self._recon_corr is None:
-            print("Reconstruction accuracy has not been calculated, computing for data given when initialized")
-            corr = self.recon_accuracy()
-            
-        # now plot recon accuracy
-        fig = plt.figure(figsize=(15, 9), constrained_layout=False)
-        ax = fig.add_subplot()
-        
-        n = self._n
-        x = np.arange(1, n+1)
-        per_x = 1/x * 100
-        if self._type == 'up':
-            title = "Reconstruction accuracy adding modes from zero to {} modes".format(str(n))
-        if self._type == 'short':
-            title = "Reconstruction accuracy removing short-wavelength modes from {} to zero modes".format(str(n))
-        if self._type == 'long':
-            title = "Reconstruction accuracy removing long-wavelength modes from {} to zero modes".format(str(n))
-        
-        ax.plot(per_x, corr, 'b')
-        ax.ylabel("Reconstruction accuracy")
-        ax.xlabel("Proportion of modes")
-        ax.xticklabels(np.arange(0, 100, 5))
-        
-        self._plot_acc = fig, ax
-        
-        plt.show()
-            
-        
-    @property
-    def recon_accuracy(self):
-        """Reconstruction accuracy from a set of reconstructions"""
-        return self._recon_corr
-    
-    @recon_accuracy.setter
-    def recon_accuracy(self, x):
-        corr = np.zeros(self._recons.shape[0])
-        if x is not None:
-            try:
-                corr[i] = np.hstack(compare_images(self._recons[i], x))
-                self._recon_corr = corr
-            except:
-                e = "Could not compute reconstruction accuracy, check input data (check if number of vertices are the same)"
-                raise ValueError(e)
-                
-        else:
-            corr[i] = np.hstack(compare_images(self._recons[i], self._data))
-            
-        self._recon_corr = corr
-        
-    @property
-    def cmap(self):
-        """colormap for plotting"""
-        return self._cmap
-    
-    @cmap.setter
-    def cmap(self, x):
-        if not is_string_like(x):
-            raise ValueError("Colormap must be string")
-        try:
-            cmap = plt.get_cmap(x)
-        except:
-            raise ValueError("Colormap must be in matplotlib recognized list")
-        
-        self._cmap = cmap
+    print(message)
+    sys.stdout.flush()
 
+HELPTEXT = """
+
+SUMMARY
+
+Attempts to reconstruct the given map `y` using LBO eigenmodes `emodes`.
+If `emodes` do not exist, computes them.
+
+Reconstructs the given map `y` by fitting a weighted sum of `emodes` in a
+GLM-like fashion (i.e., `y` = sum( `beta` * `emodes` ) + error ), using either
+LU decomposition to solve the normal equation, or if the solution cannot
+be inverted then uses linear least-squares to calculate the coefficients
+`beta`.
+
+Uses the coefficients `beta` to reconstruct the original data `y` and provides
+an output of reconstructions and reconstruction accuracies.
+
+Input can be one of the following:
+--metric  : a Connectome Workbench metric file, usually has extension '.func.gii'
+--shape   : a Connectome Workbench shape file, usually has extension '.shape.gii'
+--fssurf  : a FreeSurfer curvature, thickness, or local gyrification index file
+--file    : a ascii file containing scalar values for each vertex
+
+"""
+
+TMPTXT="""
+REQUIRED ARGUMENTS
+
+--sid <name>       Subject ID
+
+--surf <name>      A surface file, either in .vtk or .surf.gii format
+
+One of the following:
     
+--metric <name>    A Connectome Workbench metric file containing a scalar value
+                   for every vertex in <surf>, with extension ".func.gii."
+
+--shape <name>     A Connectome Workbench shape file containing a scalar value
+                   for every vertex in <surf>, with extension ".shape.gii"
+
+--file <name>      ASCII file with scalars on each line for every vertex in <surf>
+
+
+OPTIONAL ARGUMENTS
+
+--sdir <name>      Subjects directory (or set via environment $SUBJECTS_DIR)
+
+--emodes <name>    ASCII file of precomputed eigenmodes (if None, compute eigenmodes on the surface in <surf>)
+
+--outdir <name>    Output directory (default: <sdir>/<sid>/neuroshape/ )
+
+--outevec <name>   Name for eigenmodes output if none is passed to emodes
+                   (default: <surf>.<shapedna_parameters>.txt)
+
+--outfile <name>   Name for file of reconstructed values 
+                   (default: <surface_metric>.recon.<num>_modes.txt)
+                   
+--savegii <name>   Name for gifti metric output of reconstructed values
+                   (default: <surface_metric>.recon.<num>_modes.shape.gii)
+                   
+--savenii <name>   Name for nifti metric output of reconstructed values
+                   (default: <surface_metric>.recon.<num>_modes.nii)
+                   Note: surface map is interpolated in MNI152 2mm space to
+                   avoid upsampling.
+                   
+ShapeDNA parameters if --emodes is not passed (see shapeDNA [1] for details):
+    
+--num <int>        Number of eigenvalues/modes to compute (default: 50)
+                   
+--degree <int>     FEM degree (default 1)
+
+--bcond <int>      Boundary condition (0=Dirichlet, 1=Neumann default)
+
+--evec            Additionally compute eigenvectors
+
+--ignorelq        Ignore low quality in input mesh
+"""
+
+def split_callback(option, opt, value, parser):
+  setattr(parser.values, option.dest, value.split(','))
+  
+def options_parse():
+    """
+    Command Line Options Parser:
+    initiate the option parser and return the parsed object
+    """
+    parser = optparse.OptionParser(version='$Id: eigenmodes, N Koussis $', usage=HELPTEXT)
+    
+    # help text
+    h_sid       = '(REQUIRED) subject ID (FS processed directory inside the subjects directory)'
+    h_sdir      = 'FS subjects directory (or set environment $SUBJECTS_DIR)'
+    
+    h_asegid    = 'segmentation ID of structure in aseg.mgz (e.g. 17 is Left-Hippocampus), for ID\'s check <sid>/stats/aseg.stats or $FREESURFER_HOME/FreeSurferColorLUT.txt'
+    h_surf      = 'surface name, e.g. lh.pial, rh.pial, lh.white, rh.white etc. to select a surface from the <sid>/surfs directory'
+    h_aparcid   = 'segmentation ID of structure in aparc (e.g. 24 is precentral), requires --surf (including the hemi prefix), for ID\'s check $FREESURFER_HOME/average/colortable_desikan_killiany.txt'
+    h_label     = 'full path to label file, to create surface patch, requires --surf (including the hemi prefix)'
+    h_source    = 'specify source subject with --label (to map label e.g. from fsaverage space)'
+
+    h_dotet     = 'construct a tetrahedra volume mesh and compute spectra of solid'
+    h_fixiter   = 'iterations of meshfix (default=4), only with --dotet'
+    
+    h_outdir    = 'Output directory (default: <sdir>/<sid>/brainprint/ )'
+    h_outsurf   = 'Full path for surface output in VTK format (with --asegid default: <outdir>/aseg.<asegid>.vtk )'
+    h_outtet    = 'Full path for tet output (with --dotet) (default: <outdir>/<(out)surf>.msh )'
+    h_outevec     = 'Full path for eigenvalue output (default: <outdir>/<(out)surf or outtet>.ev )'
+    
+    h_num       = 'number of eigenvalues/vectors to compute (default: 50)'
+    h_degree    = 'degree for FEM computation (1=linear default, 3=cubic)'
+    h_bcond     = 'boundary condition (1=Neumann default, 0=Dirichlet )'
+    h_evec      = 'bool to switch on eigenvector computation'
+    h_ignorelq  = 'ignore low quality in input mesh'
+    h_refmin    = 'mesh refinement so that DOF is at least <int>'
+    h_tsmooth   = 'tangential smoothing iterations (after refinement)'
+    h_gsmooth   = 'geometry smoothing iterations (after refinement)'
+    h_param2d   = 'additional parameters for shapeDNA-tria'
+   
+    # Add options 
+
+    # Sepcify inputs
+    parser.add_option('--sdir', dest='sdir', help=h_sdir)
+
+    group = optparse.OptionGroup(parser, "Required Options", "Specify --sid and select one of the other options")
+    group.add_option('--sid',     dest='sid',      help=h_sid)
+    group.add_option('--asegid',  dest='asegid' ,  help=h_asegid,  type='string', action='callback', callback=split_callback)
+    group.add_option('--aparcid', dest='aparcid' , help=h_aparcid, type='string', action='callback', callback=split_callback)
+    group.add_option('--surf' ,   dest='surf' ,    help=h_surf)
+    group.add_option('--label' ,  dest='label' ,   help=h_label)
+    parser.add_option_group(group)
+
+
+    group = optparse.OptionGroup(parser, "Additional Flags", )
+    group.add_option('--source' , dest='source',   help=h_source)
+    group.add_option('--dotet' ,  dest='dotet',    help=h_dotet,   action='store_true', default=False)
+    group.add_option('--fixiter', dest='fixiter',  help=h_fixiter, default=4, type='int')
+    parser.add_option_group(group)
+
+    #output switches
+    group = optparse.OptionGroup(parser, "Output Parameters" )
+    group.add_option('--outdir',  dest='outdir',   help=h_outdir)
+    group.add_option('--outsurf', dest='outsurf',  help=h_outsurf)
+    group.add_option('--outtet',  dest='outtet',   help=h_outtet)
+    group.add_option('--outevec',   dest='outevec',    help=h_outevec)
+    parser.add_option_group(group)
+
+    #shapedna switches
+    group = optparse.OptionGroup(parser, "ShapeDNA Parameters","See shapeDNA-tria --help for details")
+    group.add_option('--num' ,     dest='num',      help=h_num,      default=50, type='int')
+    group.add_option('--degree' ,  dest='degree',   help=h_degree,   default=1,  type='int')
+    group.add_option('--bcond' ,   dest='bcond',    help=h_bcond,    default=1,  type='int')
+    group.add_option('--evec' ,    dest='evec',     help=h_evec,     default=False, action='store_true' )
+    group.add_option('--ignorelq', dest='ignorelq', help=h_ignorelq, default=False, action='store_true')
+    group.add_option('--refmin',   dest='refmin',   help=h_refmin,   default=0,  type='int')
+    group.add_option('--tsmooth',  dest='tsmooth',  help=h_tsmooth,  default=0,  type='int')   
+    group.add_option('--gsmooth',  dest='gsmooth',  help=h_gsmooth,  default=0,  type='int')   
+    group.add_option('--param2d',  dest='param2d',  help=h_param2d)
+    parser.add_option_group(group)
+    
+                      
+    (options, args) = parser.parse_args()
+    
+    if options.sdir is None:
+        options.sdir = os.getenv('SUBJECTS_DIR')
+        
+    if options.sdir is None:
+        parser.print_help()
+        m_print('\nERROR: specify subjects directory via --sdir or $SUBJECTS_DIR\n')
+        sys.exit(1)
+        
+    if options.sid is None:
+        parser.print_help()
+        m_print('\nERROR: Specify --sid\n')
+        sys.exit(1)
+        
+    subjdir = os.path.join(options.sdir, options.sid)
+    if not os.path.exists(subjdir):
+        m_print('ERROR: cannot find sid in subjects directory\n')
+        sys.exit(1)
+        
+    if options.label is not None and options.surf is None:
+        parser.print_help()
+        m_print('\nERROR: Specify --surf with --label\n')
+        sys.exit(1)  
+    if options.aparcid is not None and options.surf is None:
+        parser.print_help()
+        m_print('\nERROR: Specify --surf with --aparc\n')
+        sys.exit(1)  
+    # input needs to be either a surf or aseg label(s)
+    if options.asegid is None and options.surf is None:
+        parser.print_help()
+        m_print('\nERROR: Specify either --asegid or --surf\n')
+        sys.exit(1)
+    # and it cannot be both
+    if options.asegid is not None and options.surf is not None:
+        parser.print_help()
+        m_print('\nERROR: Specify either --asegid or --surf (not both)\n')
+        sys.exit(1)  
+    
+    # set default output dir (maybe this should be ./ ??)
+    if options.outdir is None:
+        options.outdir = os.path.join(subjdir, 'eigenmodes')
+    try:
+        os.mkdir(options.outdir)
+    except OSError as e:
+        if e.errno != os.errno.EEXIST:
+            raise e
+        pass
+
+    # check if we have write access to output dir
+    try:
+        testfile = tempfile.TemporaryFile(dir = options.outdir)
+        testfile.close()
+    except OSError as e:
+        if e.errno != errno.EACCES:  # 13
+            e.filename = options.outdir
+            raise
+        m_print('\nERROR: '+options.outdir+' not writeable (check access)!\n')
+        sys.exit(1)
+    
+    # initialize outsurf
+    if options.outsurf is None:
+        # for aseg stuff, we need to create a surface (and we'll keep it around)
+        if options.asegid is not None:
+            astring  = '_'.join(options.asegid)
+            #surfname = 'aseg.'+astring+'.surf'
+            surfname = 'aseg.' + astring + '.vtk'
+            options.outsurf = os.path.join(options.outdir,surfname)    
+        elif options.label is not None:
+            surfname = os.path.basename(options.surf) + '.' + os.path.basename(options.label) + '.vtk'
+            options.outsurf = os.path.join(options.outdir, surfname)
+        elif options.aparcid is not None:
+            astring  = '_'.join(options.aparcid)
+            surfname = os.path.basename(options.surf) + '.aparc.' + astring + '.vtk'
+            options.outsurf = os.path.join(options.outdir, surfname)          
+        else:
+            # for surfaces, a refined/smoothed version could be written
+            surfname = os.path.basename(options.surf) +' .vtk'
+            options.outsurf = os.path.join(options.outdir, surfname)
+    else:
+        # make sure it is vtk ending
+        if (os.path.splitext(options.outsurf)[1]).upper() != '.VTK':
+            m_print('ERROR: outsurf needs vtk extension (VTK format)')
+            sys.exit(1)
+    
+    # for 3d processing, initialize outtet:
+    if options.dotet and options.outtet is None:
+        surfname = os.path.basename(options.outsurf)
+        options.outtet = os.path.join(options.outdir, surfname+ '.msh')    
+    
+    # set source to sid if empty
+    if options.source is None:
+        options.source = options.sid
+        
+    # if label does not exist, search in subject label dir
+    if options.label is not None and not os.path.isfile(options.label):
+        ltemp = os.path.join(options.sdir, options.source, 'label', options.label)
+        if os.path.isfile(ltemp):
+            options.label = ltemp
+        else:
+            parser.print_help()
+            m_print('\nERROR: Specified --label not found\n')
+            sys.exit(1)  
+                
+    # initialize outevec 
+    if options.outevec is None:
+        if options.dotet:
+            options.outevec = options.outtet + '.txt'
+        else:
+            options.outevec = options.outsurf + '.txt'
+        
+    return options
+
+# Gets global path to surface input (if it is a FS surf)
+def get_path_surf(sdir, sid, surf):
+    return os.path.join(sdir, sid, 'surf', surf)
+   
+if __name__== "__main__":
+    # Command Line options and error checking done here
+    options = options_parse()
+    
+    if options.surf is None:
+        m_print('ERROR: no surface was created/selected?')
+        sys.exit(1)
+
+    m_print(options.label)
+    m_print(options.surf)

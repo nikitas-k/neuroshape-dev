@@ -1,4 +1,7 @@
 """
+- Load in the functional data of HCP subject 100206 
+- calculate the functional connectivity of a particular time step
+- Do the LBO on the same surface
 - Split the eigenvectors of an eigengroup into half the brain and the other half
 - See if the eigenvector activity of one half predicts the other half
 - Do all, but expected to be medium frequency (20/30/40/50)

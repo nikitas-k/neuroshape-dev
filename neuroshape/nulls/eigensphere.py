@@ -177,12 +177,13 @@ def eigenmode_resample(surface, data, evals, emodes, angles=None, decomp_method=
             method = decomp_method
         else:
             raise ValueError("Eigenmode decomposition method must be 'matrix' or 'regression'")
-    # if not given angles
-    if angles is None:
-        angles = np.random.random_sample(size=emodes.shape[1] - 1) * np.pi
-    
+            
     # find eigengroups
     groups = _get_eigengroups(emodes)
+    
+    # if not given angles
+    if angles is None:
+        angles = np.random.random_sample(size=len(groups) - 1) * 2 * np.pi
     
     # initialize the new modes
     new_modes = np.zeros_like(emodes)
@@ -199,30 +200,26 @@ def eigenmode_resample(surface, data, evals, emodes, angles=None, decomp_method=
             # ensure orthonormal
             new_modes[:, group] = group_modes / np.linalg.norm(group_modes)
         
-        if len(group) == 2:
-            r_i = 1
+        if len(group) == 3:
             # do simple rotation
             # initialize the points
-            p = r_i * group_modes
-            for i in range(1, group_modes.shape[1]):
-                for j in range(i):
-                    r_i *= np.sin(angles[j])
-                    if i < group_modes.shape[0] - 1:
-                        r_i *= np.cos(angles[j-1])
-            
+            p = group_modes
+            for i in range(0, group_modes.shape[1]):
+                r_i = 1 * np.sin(angles[0])
                 p += r_i * group_modes[i]
             
             # ensure orthonormal
             group_new_modes = p
-            new_modes[:, group] = np.linalg.qr(group_new_modes, mode='reduced')[0]
-            
+             # get the index for the angles
+            #new_modes[:, group] = np.linalg.qr(group_new_modes, mode='reduced')[0]
+        m = 1   
         # else, transform to spheroid and index the angles properly
         group_modes = transform_to_spheroid(group_evals, group_modes)
-        group_new_modes = resample_spheroid(group_modes, angles[group])
+        group_new_modes = resample_spheroid(group_modes, angles[m])
         
         # transform back to ellipsoid
         new_modes[:, group] = transform_to_ellipsoid(group_evals, group_new_modes)
-    
+        m += 1
     # reconstruct the new surface
     # if normalize == 'constant':
     #     if norm_factor > 0.:

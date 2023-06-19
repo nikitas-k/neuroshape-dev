@@ -1,10 +1,22 @@
 [build-system]
 requires = ["setuptools>=42", "wheel", "numpy"]
 build-backend = "setuptools.build_meta"
+requires = [
+    "python >= '3.8'",
+    "lapy >= '0.6', < '0.7'",
+    "neuromaps >= 0.0.4",
+    "scikit-sparse >= 0.4.8",
+    "nibabel >= 3.0",
+    "nilearn >= 0.7",
+    "scipy",
+    "numpy >= 1.14",
+    "brainsmash",
+]
+
 
 [project]
 name = "neuroshape"
-version = "0.0.4.3.3"
+version = "0.0.4.5"
 description = "For computing connectopic and geometric Laplacian eigenmodes and performing null hypothesis testing. As implementation is ongoing, this description is subject to rapid change."
 readme = "README.rst"
 authors = [

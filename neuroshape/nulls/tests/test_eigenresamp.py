@@ -45,7 +45,7 @@ def test_surrogates(surface_filename, data, n=201, num_surrogates=100, decomp_me
     
     # compute LBO
     tria = TriaMesh(coords, faces)
-    ev = compute_shapedna(tria, k=n)
+    ev = compute_shapedna(tria, k=n, use_cholmod=True)
     
     # exclude the zeroth mode
     emodes = ev['Eigenvectors'][:,1:]

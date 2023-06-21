@@ -17,6 +17,7 @@ import numpy as np
 import nibabel as nib
 import matplotlib.pyplot as plt
 from nilearn import plotting
+from brainsmash.utils.dataio import is_string_like, dataio
 
 cmap = plt.get_cmap('viridis')
 
@@ -34,7 +35,24 @@ methods = [
     'regression',
     ]
 
-def eigenmode_resample(surface, data, evals, emodes, angles=None, decomp_method='matrix'):
+def gram_schmidt(A):
+    """Orthogonalize a set of vectors stored as the columns of matrix A."""
+    # get the number of vectors
+    n = A.shape[1]
+    for j in range(n):
+        # To orthogonalize the vector in column j with respect to the
+        # previous vectors, subtract from it its projection onto
+        # each of the previous vectors
+        for k in range(j):
+            A[:, j] -= np.dot(A[:, k], A[:, j]) * A[:, k]
+        
+        A[:, j] = A[:, j] / np.linalg.norm(A[:, j])
+        
+    return A
+
+def eigenmode_resample(surface, data, evals, emodes, 
+                       angles=None, decomp_method='matrix', 
+                       medial=None, resample=True):
     """
     Resample the hypersphere bounded by the eigengroups contained within `emodes`,
     and reconstruct the data using coefficients conditioned on the original data
@@ -52,24 +70,30 @@ def eigenmode_resample(surface, data, evals, emodes, angles=None, decomp_method=
     -------
         - the orthonormal eigenvectors n within eigengroup l give the surface 
             of the hyperellipse of dimensions l-1
-            NOTE: for eigengroups 1, this is resampling the line,
-            and for eigengroup 2, this is resampling the surface of the 
+            NOTE: for eigengroup 0 with the zeroth mode, we ignore it,
+            and for eigengroup 1, this is resampling the surface of the 
             2-sphere
         - the axes of the hyperellipse are given by the sqrt of the eigenvalues 
             corresponding to eigenvectors n
         - linear transform the eigenvectors N to the hypersphere by dividing 
             by the ellipsoid axes
-        - find the set of points `p` on the hypersphere given by the basis 
-            modes (the eigenmodes)
-        - rotate the set of points `p` by a set given by `angles` of (0, 2*pi) for 
-            even dimensions and (0, pi) for odd dimensions (resampling step)
+        - finds the set of points `p` on the hypersphere given by the basis 
+            modes (the eigenmodes) by normalizing them to unit length
+        - rotate the set of points `p` by cos(angle) for 
+            even dimensions and sin(angle) for odd dims (resampling step)
         - find the unit vectors of the points `p` by dividing by the 
             Euclidean norm (equivalent to the eigenmodes)
-        - make the new unit vectors orthonormal using QR decomposition
+        - make the new unit vectors orthonormal using Gram-Schmidt process
         - return the new eigenmodes of that eigengroup until all eigengroups
             are computed
         - reconstruct the null data by multiplying the original coefficients
             by the new eigenmodes
+        - resamples the original data to the new distribution by performing
+            a rank order of both the surrogate and the empirical data and
+            subsitutes the empirical data into the new array, then returns the
+            original distribution of the data. This preserves the values,
+            but results in a new map
+            * Only performed if `resample` = True.
     
     References
     ----------
@@ -90,7 +114,7 @@ def eigenmode_resample(surface, data, evals, emodes, angles=None, decomp_method=
         Philadelphia, PA: Society for Industrial and Applied Mathematics. 
         ISBN 978-0-898713-61-9.
         
-        6. <https://en.wikipedia.org/wiki/QR_decomposition>
+        6. https://en.wikipedia.org/wiki/QR_decomposition
         
         7. Chen, Y. C. et al., (2022). The individuality of shape asymmetries 
         of the human cerebral cortex. Elife, 11, e75056. 
@@ -119,26 +143,28 @@ def eigenmode_resample(surface, data, evals, emodes, angles=None, decomp_method=
         If none, random angles in the half-open interval between [0, 2pi) are
         passed.
         
-    normalize : str, optional
-        Normalization method for the vertices of the new surface.
-        
-        Accepted types:
-            'constant' : normalize by a constant factor (default is 1^(1/3))
-            'number' : normalize by the number of vertices
-            'volume' : normalize by the volume of the reconstructed surface
-            'area' : normalize by the surface area of the faces bounded by 
-                    the new vertices
-        
-        The default is 'area'.
-        
     decomp_method : str, optional
         method of calculation of coefficients: 'matrix', 'matrix_separate', 
         'regression'.
         
         The default is 'matrix'.
         
-    norm_factor : int, optional
-        Normalization factor for 'constant'. Unused in any other method
+    medial : np.logical_array or str of path to file, default None
+        Medial wall mask for the input surface `surface`. Will use the labels
+        for the medial wall to mask out of the surrogates. If None, uses the
+        naive implementation of finding the medial wall by finding 0.0 values
+        in `data` - prone to errors if `data` has zero values outside of the
+        medial wall. Can also pass `False` to not attempt masking of medial wall
+        at all. 
+        
+        WARNING: If passing `False` to medial and `True` to resample,
+        resulting surrogates may have strange distributions since the 
+        rank-ordering step may assign medial-wall values outside of the 
+        medial wall. USE AT YOUR OWN RISK.
+        
+    resample : bool, optional
+        Set whether to resample surrogate map from original map to preserve
+        values, default True
 
     Returns
     -------
@@ -183,55 +209,108 @@ def eigenmode_resample(surface, data, evals, emodes, angles=None, decomp_method=
     
     # if not given angles
     if angles is None:
-        angles = np.random.random_sample(size=len(groups) - 1) * 2 * np.pi
+        angles = np.random.randn(len(groups) + 1) * np.pi
     
     # initialize the new modes
     new_modes = np.zeros_like(emodes)
     
+    m = 0 #index of angles
     # resample the hypersphere (except for groups 1 and 2)
-    for group in groups:
-        group_modes = emodes[:, group]
-        group_evals = evals[group]
-        group_new_modes = new_modes[:, group]
+    for idx in range(1, len(groups)):
+        group_modes = emodes[:, groups[idx]]
+        group_evals = evals[groups[idx]]
         
-        if len(group) == 1:
-            # resample along the line of real numbers (0, 1)
-            group_modes *= np.random.random()
-            # ensure orthonormal
-            new_modes[:, group] = group_modes / np.linalg.norm(group_modes)
-        
-        if len(group) == 3:
+        if len(groups[idx]) == 3:
             # do simple rotation
             # initialize the points
-            p = group_modes
-            for i in range(0, group_modes.shape[1]):
-                r_i = 1 * np.sin(angles[0])
-                p += r_i * group_modes[i]
+            p = group_modes / np.linalg.norm(group_modes)
+            p *= np.sin(angles[m])
             
             # ensure orthonormal
-            group_new_modes = p
+            group_new_modes = gram_schmidt(p)
              # get the index for the angles
-            #new_modes[:, group] = np.linalg.qr(group_new_modes, mode='reduced')[0]
-        m = 1   
+            new_modes[:, groups[idx]] = group_new_modes
+        
+        m += 1
         # else, transform to spheroid and index the angles properly
-        group_modes = transform_to_spheroid(group_evals, group_modes)
-        group_new_modes = resample_spheroid(group_modes, angles[m])
+        group_new_modes = transform_to_spheroid(group_evals, group_modes)
+        group_spherical_modes = resample_spheroid(group_new_modes, angles[m])
+        
+        # ensure orthonormal
+        group_spherical_modes = gram_schmidt(group_spherical_modes)
         
         # transform back to ellipsoid
-        new_modes[:, group] = transform_to_ellipsoid(group_evals, group_new_modes)
-        m += 1
-    # reconstruct the new surface
-    # if normalize == 'constant':
-    #     if norm_factor > 0.:
-    #         new_surface = reconstruct_surface(surface, new_modes, normalize=normalize, norm_factor=norm_factor, method=method)
-    #     else:
-    #         raise ValueError("Normalization factor must be greater than zero")
-    # else:
-    #     new_surface = reconstruct_surface(surface, new_modes, n=new_modes.shape[1], normalize=normalize, method=method)
-    
+        group_ellipsoid_modes = transform_to_ellipsoid(group_evals, group_spherical_modes)
+        
+        new_modes[:, groups[idx]] = group_ellipsoid_modes / np.linalg.norm(group_ellipsoid_modes)
+        
+    # find the coefficents of the modes to the data by solving the OLS
+    # decomposition, either through the normal equation solution or regression    
     coeffs = eigen_decomposition(data, emodes, method=method)
+    
+    # matrix multiply the estimated coefficients by the new modes
+    surrogate_data = reconstruct_data(coeffs, new_modes)
+    
+    # mask out medial wall
+    if medial is None:
+        # get index of medial wall hopefully
+        medial_wall = np.abs(data) == 0.0
+        
+    elif medial is False:
+        if resample is True:
+            raise RuntimeWarning("Resampling without masking out the medial wall "
+                                 "may result in erroneous surrogate distributions. "
+                                 "The authors of this code do not take responsibility for "
+                                 "improper usage.\n"
+                                 "USE AT YOUR OWN RISK.")
             
-    surrogate_data = reconstruct_data(coeffs, new_modes, n=new_modes.shape[1])
+            medial_wall = np.zeros_like(data)
+        
+    else: # if given medial array
+        if is_string_like(medial) == True:
+            try:
+                medial = dataio(medial)
+            except:
+                raise RuntimeError("Could not load medial wall file, please check")
+        
+        if isinstance(medial, np.ndarray) == True:
+            if medial.ndim != 1:
+                raise ValueError("Medial wall array must be a vector")
+            if medial.shape[0] != surface.darrays[0].data.shape[0]:
+                # try transpose
+                if medial.shape[1] != surface.darrays[0].data.shape[0]:
+                    raise ValueError("Medial wall array must have the same number of vertices as the brain map")
+                else:
+                    medial_wall = medial.T
+            if not np.array_equal(medial, medial.astype(bool)):
+                raise RuntimeError("Medial wall array must be 1 for the ROI (medial wall) and 0 elsewhere")
+            else:    
+                medial_wall = medial
+        else:
+            raise ValueError("Could not use provided medial wall array or "
+                             "file, please check")
+    
+    medial_wall = medial_wall.astype(bool)
+    
+    # mask out medial wall from surrogate
+    surrogate_data[medial_wall] = 0.0
+    
+    if resample is True:
+        mask = np.logical_not(medial_wall)
+
+        # Mask the data and surrogate_data excluding the medial wall
+        data_no_mwall = data[mask]
+        surr_no_mwall = surrogate_data[mask]
+        
+        # Get the rank ordered indices
+        data_ranks = np.argsort(data_no_mwall)
+        surr_ranks = np.argsort(surr_no_mwall)
+        
+        # Resample surr_no_mwall according to the rank ordering of data_no_mwall
+        surr_no_mwall[surr_ranks] = data_no_mwall[data_ranks]
+        output_surr = np.copy(surrogate_data)
+        output_surr[mask] = surr_no_mwall
+        surrogate_data = output_surr
     
     return surrogate_data
 

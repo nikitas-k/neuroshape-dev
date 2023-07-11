@@ -139,7 +139,7 @@ def reconstruct_data(coeffs, eigenmodes, pv=100.0):
     eigenmodes = eigenmodes[:,:n]
     coeffs = coeffs[:n].reshape(-1, 1)
     
-    new_data = np.matmul(eigenmodes, coeffs)
+    new_data = coeffs.T @ eigenmodes.T
     
     return new_data.squeeze()
     
@@ -315,7 +315,7 @@ def resample_spheroid(spheroid_eigenmodes, angle):
 
     """
     # ensure the eigenmodes are normalized on the unit hypersphere
-    spheroid_eigenmodes = spheroid_eigenmodes / np.linalg.norm(spheroid_eigenmodes, axis=0)
+    spheroid_eigenmodes = spheroid_eigenmodes #/ np.linalg.norm(spheroid_eigenmodes, axis=0)
     
     # length of group to determine evenness or oddness of dimensions
     #dims = spheroid_eigenmodes.shape[0]
@@ -325,7 +325,7 @@ def resample_spheroid(spheroid_eigenmodes, angle):
     
     # compute the coordinates for the new points
     for i in range(1, spheroid_eigenmodes.shape[1]):
-        p[:, i] *= np.sin(angle)
+        p[:, i] *= np.cos(angle)
     
     # Compute the coordinates for new points p
     # print("Computing the coordinates for each dimension, multiplying by single angle per group")

@@ -566,7 +566,7 @@ def calc_eigenmodes(sdir, sid, surf_file, outdir, outevec=None, num_modes=2):
     evals, emodes = fem.eigs(k=num_modes)
     
     # standardize modes
-    emodes = (emodes - np.mean(emodes, axis=0))/np.std(emodes, axis=0)
+    emodes = (emodes - np.mean(emodes, axis=1))/np.std(emodes, axis=1)
     
     # remove the medial wall
     medial_wall = find_medial_wall(sdir, sid).reshape(-1,)

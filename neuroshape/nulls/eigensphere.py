@@ -13,6 +13,8 @@ from neuroshape.utils.eigen import (
     reconstruct_data,
     )
 
+import copy
+
 import numpy as np
 import nibabel as nib
 import matplotlib.pyplot as plt
@@ -52,7 +54,8 @@ def gram_schmidt(A):
 
 def eigenmode_resample(surface, data, evals, emodes, 
                        angles=None, decomp_method='matrix', 
-                       medial=None, resample=True):
+                       medial=None, randomize=False,
+                       resample=True):
     """
     Resample the hypersphere bounded by the eigengroups contained within `emodes`,
     and reconstruct the data using coefficients conditioned on the original data
@@ -203,53 +206,6 @@ def eigenmode_resample(surface, data, evals, emodes,
             method = decomp_method
         else:
             raise ValueError("Eigenmode decomposition method must be 'matrix' or 'regression'")
-            
-    # find eigengroups
-    groups = _get_eigengroups(emodes)
-    
-    # if not given angles
-    if angles is None:
-        angles = np.random.randn(len(groups) + 1) * np.pi
-    
-    # initialize the new modes
-    new_modes = np.zeros_like(emodes)
-    
-    m = 0 #index of angles
-    # resample the hypersphere (except for groups 1 and 2)
-    for idx in range(1, len(groups)):
-        group_modes = emodes[:, groups[idx]]
-        group_evals = evals[groups[idx]]
-        
-        if len(groups[idx]) == 3:
-            # do simple rotation
-            # initialize the points
-            p = group_modes / np.linalg.norm(group_modes)
-            p *= np.sin(angles[m])
-            
-            # ensure orthonormal
-            group_new_modes = gram_schmidt(p)
-             # get the index for the angles
-            new_modes[:, groups[idx]] = group_new_modes
-        
-        m += 1
-        # else, transform to spheroid and index the angles properly
-        group_new_modes = transform_to_spheroid(group_evals, group_modes)
-        group_spherical_modes = resample_spheroid(group_new_modes, angles[m])
-        
-        # ensure orthonormal
-        group_spherical_modes = gram_schmidt(group_spherical_modes)
-        
-        # transform back to ellipsoid
-        group_ellipsoid_modes = transform_to_ellipsoid(group_evals, group_spherical_modes)
-        
-        new_modes[:, groups[idx]] = group_ellipsoid_modes / np.linalg.norm(group_ellipsoid_modes)
-        
-    # find the coefficents of the modes to the data by solving the OLS
-    # decomposition, either through the normal equation solution or regression    
-    coeffs = eigen_decomposition(data, emodes, method=method)
-    
-    # matrix multiply the estimated coefficients by the new modes
-    surrogate_data = reconstruct_data(coeffs, new_modes)
     
     # mask out medial wall
     if medial is None:
@@ -292,23 +248,84 @@ def eigenmode_resample(surface, data, evals, emodes,
     
     medial_wall = medial_wall.astype(bool)
     
+    medial_mask = np.logical_not(medial_wall)
+    data_copy = copy.deepcopy(data) # deepcopy original data so it's not modified
+    data_copy = data_copy[medial_mask]
+    emodes_copy = copy.deepcopy(emodes)
+    emodes_copy = emodes_copy[medial_mask]
+    
+    # find eigengroups
+    groups = _get_eigengroups(emodes_copy)
+    
+    # if not given angles
+    if angles is None:
+        angles = np.random.randn(len(groups) + 1) * np.pi
+    
+    # initialize the new modes
+    new_modes = np.zeros_like(emodes_copy)
+    
+    m = 0 #index of angles
+    # resample the hypersphere (except for groups 1 and 2)
+    for idx in range(1, len(groups)):
+        group_modes = emodes_copy[:, groups[idx]]
+        group_evals = evals[groups[idx]]
+        
+        if len(groups[idx]) == 3:
+            # do simple rotation
+            # initialize the points
+            p = group_modes / np.sqrt(group_evals)
+            p *= np.cos(angles[m])
+            
+            # ensure orthonormal
+            group_new_modes = gram_schmidt(p)
+             # get the index for the angles
+            new_modes[:, groups[idx]] = group_new_modes
+        
+        m += 1
+        # else, transform to spheroid and index the angles properly
+        group_new_modes = transform_to_spheroid(group_evals, group_modes)
+        group_spherical_modes = resample_spheroid(group_new_modes, angles[m])
+        
+        # ensure orthonormal
+        group_spherical_modes = gram_schmidt(group_spherical_modes)
+        
+        # transform back to ellipsoid
+        group_ellipsoid_modes = transform_to_ellipsoid(group_evals, group_spherical_modes)
+        
+        new_modes[:, groups[idx]] = gram_schmidt(group_ellipsoid_modes) #/ np.linalg.norm(group_ellipsoid_modes)
+     
+    #new_modes = gram_schmidt(new_modes) #/ np.linalg.norm(new_modes)
+    # find the coefficents of the modes to the data by solving the OLS
+    # decomposition, either through the normal equation solution or regression    
+    coeffs = eigen_decomposition(data_copy, emodes_copy, method=method)
+    
+    # matrix multiply the estimated coefficients by the new modes
+    surrogate_data = np.zeros_like(data)
+    
+    if randomize is True:
+        for i in range(len(groups)):
+            coeffs[groups[i]] = np.random.permutation(coeffs[groups[i]])
+    
+    surrogate_data[medial_mask] = reconstruct_data(coeffs, new_modes)
+    
     # mask out medial wall from surrogate
-    surrogate_data[medial_wall] = 0.0
+    #surrogate_data[medial_wall] = 0.0
     
     if resample is True:
         mask = np.logical_not(medial_wall)
 
         # Mask the data and surrogate_data excluding the medial wall
         data_no_mwall = data[mask]
-        surr_no_mwall = surrogate_data[mask]
+        surr_no_mwall = copy.deepcopy(surrogate_data)
+        surr_no_mwall = surr_no_mwall[mask]
         
         # Get the rank ordered indices
-        data_ranks = np.argsort(data_no_mwall)
-        surr_ranks = np.argsort(surr_no_mwall)
+        data_ranks = data_no_mwall.argsort()[::-1]
+        surr_ranks = surr_no_mwall.argsort()[::-1]
         
         # Resample surr_no_mwall according to the rank ordering of data_no_mwall
         surr_no_mwall[surr_ranks] = data_no_mwall[data_ranks]
-        output_surr = np.copy(surrogate_data)
+        output_surr = np.zeros_like(surrogate_data)
         output_surr[mask] = surr_no_mwall
         surrogate_data = output_surr
     

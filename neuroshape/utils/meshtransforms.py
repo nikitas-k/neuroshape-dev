@@ -3,9 +3,9 @@ import numpy as np
 from ..utils.concavehull import ConcaveHull
 from shapely.geometry import Point
 
-def grid(x, vertices, tol=20, spacing=0.5, ch=None):
+def grid(x, vertices, tol=20, spacing=1.0, ch=None):
     """
-    Interpolates surface onto grid for wavelet transform
+    Interpolates surface onto grid
     
     Parameters
     ----------
@@ -13,10 +13,10 @@ def grid(x, vertices, tol=20, spacing=0.5, ch=None):
         Data values at each surface vertex
     vertices : (N,3) np.ndarray
         Vertices of gifti object
-    sf : float
-        Shrink factor, default 0.7
+    tol : float
+        Tolerance for calculation of concave hull, default 20
     spacing : float
-        Target grid spacing in mm, default 0.5
+        Target grid spacing in mm, default 1.0
     
     Returns
     -------
@@ -39,10 +39,9 @@ def grid(x, vertices, tol=20, spacing=0.5, ch=None):
     
     unbounded_data = griddata((x, y), c, (gridX, gridY), method='nearest', fill_value=0)
     
-    # if not ch:
-    #     ch = ConcaveHull()
-    #     ch.loadpoints(vertices[:, :2])
-    #     ch.calculatehull(tol=tol)
+    ch = ConcaveHull()
+    ch.loadpoints(vertices[:, :2])
+    ch.calculatehull(tol=tol)
     
     bounded_data = np.zeros(unbounded_data.shape)*np.nan
     for i in np.arange(len(unbounded_data)):
@@ -63,7 +62,7 @@ def mesh(interpolated_data, vertices, gridX, gridY):
     Parameters
     ----------
     interpolated_data : (N,M) np.ndarray
-        Output from 'grid()', interpolated grid to perform wavelet transforms
+        Output from 'grid()', interpolated grid
     vertices : (N,3) np.ndarray
         Vertices of gifti object
     gridX : (N,N) np.ndarray

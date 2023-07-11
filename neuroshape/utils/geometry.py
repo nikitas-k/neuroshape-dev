@@ -1,5 +1,5 @@
 from nipype.interfaces.freesurfer import MRIMarchingCubes
-from lapy import TriaMesh
+from lapy import TriaMesh, TriaIO, Solver
 import warnings
 from collections import OrderedDict
 import scipy.optimize as optimize
@@ -12,6 +12,7 @@ import numpy as np
 from neuromaps.datasets.atlases import fetch_mni152
 from ants import image_read, registration, apply_transforms
 from scipy.spatial import Delaunay, KDTree
+from brainspace import mesh
 
 """
 Helper utilities for geometry and registration
@@ -280,111 +281,143 @@ def make_tria_file(nifti_input_filename):
     
     return tria_file
 
-# def mesh_and_remove_medial_wall(nifti_input_filename, fs_dir=None, mesh_type='tria'):
-#     """
-#     Generates a mesh and removes the medial wall when given a FreeSurfer subject directory
-#     Requires recon-all to have been completed and for the names of the
-#     outputs to not have been modified. If `fs_dir` is NoneType or
-#     the annotation files cannot be found, then a naive implementation
-#     of FSL fast is performed to remove the medial wall from the vertices
-#     of the nifti input.
-#     """
-    
-#     if mesh_type not in ['tria', 'tetra']:
-#         raise ValueError("mesh type must be triangular or tetrahedral")
-        
-#     nifti_input_file_head, nifti_input_file_tail = os.path.split(nifti_input_filename)
-#     nifti_input_file_main, nifti_input_file_ext = os.path.splitext(nifti_input_file_tail)
-    
-#     # check if nifti is in MNI152 space
-#     img = image.load_img(nifti_input_filename)
-    
-#     if _check_mni(nifti_input_filename) is False:
-#         # keep original affine and mask image to return MNI152
-#         # registered image
-#         img_affine = img.affine
-#         img_mni = native_to_mni152(nifti_input_filename)
-#         img_mni_filename = nifti_input_file_head + '_mni152' + nifti_input_file_ext
-#         print("Saving MNI152-registered input to {}".format(img_mni_filename))
-#         nib.save(img_mni, img_mni_filename)
-        
-#     # if fs_dir is None:
-#     #     print("FreeSurfer subject directory not given, using FSL fast")
-#     #     new_vertices = _remove_medial_wall_no_fs(nifti_input_filename)
-#     #     return new_vertices
-       
-#     # register nifti to FreeSurfer average space
-#     img_fs = mni152_to_fsaverage(img_mni)
-    
-#     # prepare transformation
-#     lh, rh = img_fs
-#     lh_verts = lh.darrays[0].data.reshape(-1,3)
-#     rh_verts = rh.darrays[0].data.reshape(-1,3)
-    
-#     # combine the hemispheres into one image
-#     verts = np.vstack((lh_verts, rh_verts))
-    
-#     xx, yy, zz = verts.T
+def create_temp_surface(surface_input, surface_output_filename):
+    """Write surface to a new vtk file.
 
-#     points = np.zeros([xx.shape[0],4])
-#     points[:,0] = xx
-#     points[:,1] = yy
-#     points[:,2] = zz
-#     points[:,3] = 1
+    Parameters
+    ----------
+    surface_input : brainspace compatible object
+        Loaded vtk object corresponding to a surface triangular mesh
+    surface_output_filename : str
+        Filename of surface to be saved
+    """
 
-#     # calculate transformation matrix
-#     T = get_tkrvox2ras(img.shape, img.header.get_zooms())
+    f = open(surface_output_filename, 'w')
+    f.write('# vtk DataFile Version 2.0\n')
+    f.write(surface_output_filename + '\n')
+    f.write('ASCII\n')
+    f.write('DATASET POLYDATA\n')
+    f.write('POINTS ' + str(np.shape(surface_input.Points)[0]) + ' float\n')
+    for i in range(np.shape(surface_input.Points)[0]):
+        f.write(' '.join(map(str, np.array(surface_input.Points[i, :]))))
+        f.write('\n')
+    f.write('\n')
+    f.write('POLYGONS ' + str(np.shape(surface_input.polys2D)[0]) + ' ' + str(4* np.shape(surface_input.polys2D)[0]) + '\n')
+    for i in range(np.shape(surface_input.polys2D)[0]):
+        f.write(' '.join(map(str, np.append(3, np.array(surface_input.polys2D[i, :])))))
+        f.write('\n')
+    f.close()
 
-#     # apply transformation
-#     points2 = np.matmul(T, np.transpose(points))
-    
-#     #img_fs_filename = nifti_input_file_head + '_fsaverage' + 
+def get_indices(surface_original, surface_new):
+    """Extract indices of vertices of the two surfaces that match.
 
-#     # generate mesh
-#     tria_file = make_tria_file(img_fs)    
-    
-#     # find pial surfaces and annotation files
-#     lh_pial = fs_dir + '/surf/lh.pial'
-#     rh_pial = fs_dir + '/surf/rh.pial'
-    
-#     try:
-#         # Load the lh and rh pial surface
-#         lh_pial = read_geometry(lh_pial)
-#         rh_pial = read_geometry(rh_pial)    
-        
-#         # Load the lh and rh annotation
-#         lh_labels, _, lh_names = read_annot(fs_dir + '/label/lh.aparc.annot')
-#         rh_labels, _, rh_names = read_annot(fs_dir + '/label/rh.aparc.annot')
-        
-#         # Find the medial wall
-#         lh_medial_wall_label = np.where(lh_names == b'unknown')[0]
-#         lh_medial_wall_vertices = np.where(lh_labels == lh_medial_wall_label)[0]
-        
-#         # mask out medial wall vertices
-        
-#         # fix shape of data structure
-        
-#         return new_vertices
-        
-#     except:
-#     #     # do FSL fast implementation
-#     #     new_vertices = _remove_medial_wall_no_fs(nifti_input_filename)
-#         return new_vertices
-        
+    Parameters
+    ----------
+    surface_original : brainspace compatible object
+        Loaded vtk object corresponding to a surface triangular mesh
+    surface_new : brainspace compatible object
+        Loaded vtk object corresponding to a surface triangular mesh
 
+    Returns
+    ------
+    indices : array
+        indices of vertices
+    """
 
-# def _remove_medial_wall_no_fs(nifti_input_filename):
-#     """
-#     Remove the medial wall using FSL fast and masking out the subcortex
-#     """
+    indices = np.zeros([np.shape(surface_new.Points)[0],1])
+    for i in range(np.shape(surface_new.Points)[0]):
+        indices[i] = np.where(np.all(np.equal(surface_new.Points[i,:],surface_original.Points), axis=1))[0][0]
+    indices = indices.astype(int)
     
-    
-    
-#     return new_vertices
+    return indices
 
-#def compute_geodesic_distances(vertices, ):
+def calc_eig(tria, num_modes):
+    """Calculate the eigenvalues and eigenmodes of a surface.
+
+    Parameters
+    ----------
+    tria : lapy compatible object
+        Loaded vtk object corresponding to a surface triangular mesh
+    num_modes : int
+        Number of eigenmodes to be calculated
+
+    Returns
+    ------
+    evals : array (num_modes x 1)
+        Eigenvalues
+    emodes : array (number of surface points x num_modes)
+        Eigenmodes
+    """
     
+    fem = Solver(tria, use_cholmod=True)
+    evals, emodes = fem.eigs(k=num_modes)
     
+    return evals, emodes
+    
+def calc_surface_eigenmodes(surface_input_filename, mask_input_filename, save_cut, num_modes):
+    """Main function to calculate the eigenmodes of a cortical surface with application of a mask (e.g., to remove the medial wall).
+
+    Parameters
+    ----------
+    surface_input_filename : str
+        Filename of input surface
+    mask_input_filename : str
+        Filename of mask to be applied on the surface (e.g., cortex without medial wall, values = 1 for mask and 0 elsewhere)
+    output_eval_filename : str  
+        Filename of text file where the output eigenvalues will be stored
+    output_emode_filename : str  
+        Filename of text file where the output eigenmodes will be stored
+    save_cut : boolean 
+        Boolean to decide if the new surface with mask applied will be saved to a new surface file
+    num_modes : int
+        Number of eigenmodes to be calculated          
+    """
+
+    # load surface (as a brainspace object)
+    surface_orig = mesh.mesh_io.read_surface(surface_input_filename)
+    
+    # load mask
+    # can be any ROI (even whole cortex)
+    mask_input_file_main, mask_input_file_ext = os.path.splitext(mask_input_filename)
+    if mask_input_file_ext == '.txt':
+        mask = np.loadtxt(mask_input_filename, delimiter=',')
+    elif mask_input_file_ext == '.gii':
+        mask = nib.load(mask_input_filename).darrays[0].data
+    
+    # create temporary suface based on mask
+    surface_cut = mesh.mesh_operations.mask_points(surface_orig, mask)
+
+    if save_cut == 1:
+        # old method: save vtk of surface_cut and open via lapy TriaIO 
+        # The writing phase of this process is very slow especially for large surfaces
+        temp_cut_filename='temp_cut.gii'
+        temp_cut = nib.GiftiImage()
+        temp_cut.add_gifti_data_array(nib.gifti.gifti.GiftiDataArray(surface_cut.GetPoints().astype('float32')))
+        temp_cut.add_gifti_data_array(nib.gifti.gifti.GiftiDataArray(mesh.mesh_elements.get_cells(surface_cut).astype('int32')))
+        nib.save(temp_cut, temp_cut_filename)
+        # load surface (as a lapy object)
+        vertices, faces = temp_cut.agg_data()
+        tria = TriaMesh(vertices, faces)
+    else:
+        # new method: replace v and t of surface_orig with v and t of surface_cut
+        # faster version without the need to write the vtk file
+        # load surface (as a lapy object)
+        tria = TriaIO.import_vtk(surface_input_filename)
+        tria.v = surface_cut.Points
+        tria.t = np.reshape(surface_cut.Polygons, [surface_cut.n_cells, 4])[:,1:4]
+
+    # calculate eigenvalues and eigenmodes
+    evals, emodes = calc_eig(tria, num_modes)
+    
+    # get indices of vertices of surface_orig that match surface_cut
+    indices = get_indices(surface_orig, surface_cut)
+    
+    # reshape emodes to match vertices of original surface
+    emodes_reshaped = np.zeros([surface_orig.n_points,np.shape(emodes)[1]])
+    for mode in range(np.shape(emodes)[1]):
+        emodes_reshaped[indices,mode] = np.expand_dims(emodes[:,mode], axis=1)
+        
+    return evals, emodes_reshaped
     
 
 def nearest_neighbor(P, X, radius=None):

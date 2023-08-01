@@ -91,11 +91,10 @@ def eigenmode_resample(surface, data, evals, emodes,
             are computed
         - reconstruct the null data by multiplying the original coefficients
             by the new eigenmodes
-        - resamples the original data to the new distribution by performing
-            a rank order of both the surrogate and the empirical data and
-            subsitutes the empirical data into the new array, then returns the
-            original distribution of the data. This preserves the values,
-            but results in a new map
+        - resamples the null data by performing rank-ordering to replicate
+            the reconstructed data term, then adds the noise term back into the
+            null data to produce a surrogate that replicates the original
+            variance of the empirical data.
             * Only performed if `resample` = True.
     
     References
@@ -253,6 +252,7 @@ def eigenmode_resample(surface, data, evals, emodes,
     data_copy = data_copy[medial_mask]
     emodes_copy = copy.deepcopy(emodes)
     emodes_copy = emodes_copy[medial_mask]
+    #emodes_copy = gram_schmidt(emodes_copy)
     
     # find eigengroups
     groups = _get_eigengroups(emodes_copy)
@@ -262,7 +262,7 @@ def eigenmode_resample(surface, data, evals, emodes,
         angles = np.random.randn(len(groups) + 1) * np.pi
     
     # initialize the new modes
-    new_modes = np.zeros_like(emodes_copy)
+    new_modes = copy.deepcopy(np.zeros_like(emodes_copy))
     
     m = 0 #index of angles
     # resample the hypersphere (except for groups 1 and 2)
@@ -272,12 +272,13 @@ def eigenmode_resample(surface, data, evals, emodes,
         
         if len(groups[idx]) == 3:
             # do simple rotation
-            # initialize the points
+            # initialize thße points
             p = group_modes / np.sqrt(group_evals)
+            #p /= np.linalg.norm(p, axis=0)
             p *= np.cos(angles[m])
             
             # ensure orthonormal
-            group_new_modes = gram_schmidt(p)
+            group_new_modes = gram_schmidt(p * np.sqrt(group_evals))
              # get the index for the angles
             new_modes[:, groups[idx]] = group_new_modes
         
@@ -287,7 +288,7 @@ def eigenmode_resample(surface, data, evals, emodes,
         group_spherical_modes = resample_spheroid(group_new_modes, angles[m])
         
         # ensure orthonormal
-        group_spherical_modes = gram_schmidt(group_spherical_modes)
+        #group_spherical_modes = gram_schmidt(group_spherical_modes)
         
         # transform back to ellipsoid
         group_ellipsoid_modes = transform_to_ellipsoid(group_evals, group_spherical_modes)
@@ -298,6 +299,7 @@ def eigenmode_resample(surface, data, evals, emodes,
     # find the coefficents of the modes to the data by solving the OLS
     # decomposition, either through the normal equation solution or regression    
     coeffs = eigen_decomposition(data_copy, emodes_copy, method=method)
+    reconstructed_data = coeffs @ emodes_copy.T
     
     # matrix multiply the estimated coefficients by the new modes
     surrogate_data = np.zeros_like(data)
@@ -310,24 +312,41 @@ def eigenmode_resample(surface, data, evals, emodes,
     
     # mask out medial wall from surrogate
     #surrogate_data[medial_wall] = 0.0
+    mask = np.logical_not(medial_wall)
+
+    # Mask the data and surrogate_data excluding the medial wall
+    surr_no_mwall = copy.deepcopy(surrogate_data)
+    surr_no_mwall = surr_no_mwall[mask]
     
     if resample is True:
-        mask = np.logical_not(medial_wall)
-
-        # Mask the data and surrogate_data excluding the medial wall
-        data_no_mwall = data[mask]
-        surr_no_mwall = copy.deepcopy(surrogate_data)
-        surr_no_mwall = surr_no_mwall[mask]
-        
         # Get the rank ordered indices
-        data_ranks = data_no_mwall.argsort()[::-1]
+        data_ranks = reconstructed_data.argsort()[::-1]
         surr_ranks = surr_no_mwall.argsort()[::-1]
         
         # Resample surr_no_mwall according to the rank ordering of data_no_mwall
-        surr_no_mwall[surr_ranks] = data_no_mwall[data_ranks]
-        output_surr = np.zeros_like(surrogate_data)
-        output_surr[mask] = surr_no_mwall
-        surrogate_data = output_surr
+        surr_no_mwall[surr_ranks] = reconstructed_data[data_ranks]
+        
+    else: # force match the minima
+        surr_no_mwall /= np.sqrt(np.mean(surr_no_mwall**2))
+        surr_no_mwall *= np.sqrt(np.mean(data_copy**2))        
+    
+    # now add the residuals of the original data
+    residuals = data_copy - reconstructed_data
+
+    # slightly permute the original residuals
+    #window_size = 50  # size of the local section to shuffle
+    
+    # Loop over the array with a stride of window_size
+    #for i in range(0, len(residuals), window_size):
+        # Randomly permute a small section of the array
+        #residuals[i:i+window_size] = np.random.permutation(residuals[i:i+window_size])
+    
+    surr_no_mwall = surr_no_mwall + residuals
+    
+    output_surr = np.zeros_like(surrogate_data)
+    output_surr[mask] = surr_no_mwall
+    
+    surrogate_data = output_surr
     
     return surrogate_data
 

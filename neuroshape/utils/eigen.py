@@ -109,7 +109,7 @@ def find_optimum_eigengroups(eigs, y, groups, previous_corr=0., tol=0.001):
     previous_corr = next_corr
     
 
-def reconstruct_data(coeffs, eigenmodes, pv=100.0):
+def reconstruct_data(coeffs, eigenmodes):
     """
     Reconstruct a dataset of `n_vertices` given a set of eigenmodes and coeffs
     conditioned on data using ordinary least squares (OLS)
@@ -130,16 +130,9 @@ def reconstruct_data(coeffs, eigenmodes, pv=100.0):
 
     """
     
-    if pv == 0.0:
-        raise ValueError("Percentage of modes to use for reconstruction must be greater than 1")
-        
-    _, M = eigenmodes.shape
-    n = int(np.ceil(M * pv / 100))
+    coeffs = coeffs.reshape(-1, 1)
     
-    eigenmodes = eigenmodes[:,:n]
-    coeffs = coeffs[:n].reshape(-1, 1)
-    
-    new_data = coeffs.T @ eigenmodes.T
+    new_data = eigenmodes @ coeffs
     
     return new_data.squeeze()
     
@@ -321,11 +314,11 @@ def resample_spheroid(spheroid_eigenmodes, angle):
     #dims = spheroid_eigenmodes.shape[0]
     
     # initialize the new points p
-    p = spheroid_eigenmodes
+    p = spheroid_eigenmodes * np.cos(angle)
     
     # compute the coordinates for the new points
-    for i in range(1, spheroid_eigenmodes.shape[1]):
-        p[:, i] *= np.cos(angle)
+    # for i in range(0, spheroid_eigenmodes.shape[1]):
+    #     p[:, i] *= np.cos(angle)
     
     # Compute the coordinates for new points p
     # print("Computing the coordinates for each dimension, multiplying by single angle per group")

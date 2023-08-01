@@ -368,19 +368,19 @@ def get_label_surf(sdir, sid, label, surf, source, outsurf):
     if (source != sid):
         mappedlabel = os.path.join(outdir, os.path.basename(label) + '.' + str(uuid.uuid4()) + '.label')
         cmd = 'mri_label2label --sd ' + sdir + ' --srclabel ' + label + ' --srcsubject ' + source + ' --trgsubject ' + sid + ' --trglabel ' + mappedlabel + ' --hemi ' + hemi + ' --regmethod surface'
-        subprocess.run(cmd)     
+        os.system(cmd)     
     # make surface path (make sure output is stl, this currently needs fsdev, will probably be in 6.0)
     cmd = 'label2patch -writesurf -sdir ' + sdir + ' -surf ' + surf + ' ' + sid + ' ' + hemi + ' ' + mappedlabel + ' ' + stlsurf
-    subprocess.run(cmd)     
+    os.system(cmd)     
     cmd = 'mris_convert ' + stlsurf + ' ' + outsurf
-    subprocess.run(cmd)
+    os.system(cmd)
     
     # cleanup map label if necessary
     if (source != sid):
         cmd ='rm ' + mappedlabel
-        subprocess.run(cmd)     
+        os.system(cmd)     
     cmd = 'rm ' + stlsurf
-    subprocess.run(cmd)
+    os.system(cmd)
     
     # make and write surface
     outsurf = make_surf(sdir, sid, surf, outdir, outsurf)
@@ -408,30 +408,30 @@ def get_aseg_surf(sdir, sid, asegid, outsurf):
     #if len(asegid) > 1:
     # always binarize first, otherwise pretess may scale aseg if labels are larger than 255 (e.g. aseg+aparc, bug in mri_pretess?)
     cmd ='mri_binarize --i ' + aseg + ' --match ' + astring2 + ' --o ' + segf
-    subprocess.run(cmd) 
+    os.system(cmd) 
     ptinput = segf
     ptlabel = '1'
     # if norm exist, fix label (pretess)
     if os.path.isfile(norm):
         cmd ='mri_pretess ' + ptinput + ' ' + ptlabel + ' ' + norm + ' ' + segf
-        subprocess.run(cmd) 
+        os.system(cmd) 
     else:
         if not os.path.isfile(segf):
             # cp segf if not exist yet
             # (it exists already if we combined labels above)
             cmd = 'cp ' + ptinput + ' ' + segf
-            subprocess.run(cmd) 
+            os.system(cmd) 
     # runs marching cube to extract surface
     cmd ='mri_mc ' + segf + ' ' + ptlabel + ' ' + segsurf
-    subprocess.run(cmd) 
+    os.system(cmd) 
     # convert to stl
     cmd ='mris_convert ' + segsurf + ' ' + outsurf
-    subprocess.run(cmd)
+    os.system(cmd)
     # cleanup temp files
     cmd ='rm ' + segf
-    subprocess.run(cmd) 
+    os.system(cmd) 
     cmd ='rm ' + segsurf
-    subprocess.run(cmd)
+    os.system(cmd)
     
     
     # return surf name
@@ -455,24 +455,24 @@ def get_aparc_surf(sdir, sid, surf, aparcid, outsurf):
         # create label of this id
         outlabelpre = os.path.join(outdir, hemi + '.aparc.' + rndname)
         cmd = 'mri_annotation2label --sd ' + sdir + ' --subject ' + sid + ' --hemi ' + hemi + ' --label ' + str(aid) + ' --labelbase ' + outlabelpre 
-        subprocess.run(cmd) 
+        os.system(cmd) 
         alllabels = alllabels + '-i ' + outlabelpre + "-%03d.label" % int(aid) + ' ' 
     # merge labels (if more than 1)
     mergedlabel = outlabelpre + "-%03d.label" % int(aid)
     if len(aparcid) > 1:
         mergedlabel = os.path.join(outdir, hemi + '.aparc.all.' + rndname + '.label')
         cmd = 'mri_mergelabels ' + alllabels + ' -o ' + mergedlabel
-        subprocess.run(cmd) 
+        os.system(cmd) 
     # make to surface (call subfunction above)
     get_label_surf(sdir, sid, mergedlabel, surf, sid, outsurf)
     # cleanup
     if len(aparcid) > 1:
         cmd ='rm ' + mergedlabel
-        subprocess.run(cmd)
+        os.system(cmd)
     for aid in aparcid:
         outlabelpre = os.path.join(outdir, hemi + '.aparc.' + rndname + "-%03d.label" % int(aid))
         cmd ='rm ' + outlabelpre
-        subprocess.run(cmd)
+        os.system(cmd)
     # return surf name
     return outsurf
 
@@ -484,12 +484,12 @@ def get_tetmesh(sdir, sid, surf, outtet, norm_type, norm_factor=1):
     
     # make surface mesh
     cmd = 'mris_convert ' + surf + ' ' + surftemp_stl
-    subprocess.run(cmd)
+    os.system(cmd)
     
     # marching cubes
     tria_file = 'tmp_surface.vtk'
     cmd = 'mri_mc ' + surftemp_stl + ' 1 ' + outdir + '/' + tria_file
-    subprocess.run(cmd)
+    os.system(cmd)
       
     # write gmsh geofile
     geofile  = os.path.join(outdir,'gmsh.'+str(uuid.uuid4())+'.geo')
@@ -505,10 +505,10 @@ def get_tetmesh(sdir, sid, surf, outtet, norm_type, norm_factor=1):
         
     # use gmsh to create tet mesh
     cmd = 'gmsh -3 -o ' + outtet + ' ' + geofile
-    subprocess.run(cmd)
+    os.system(cmd)
     
     cmd = "sed 's/double/float/g;s/UNSTRUCTURED_GRID/POLYDATA/g;s/CELLS/POLYGONS/g;/CELL_TYPES/,$d' " + outtet + " > " + outtet + "'_fixed'"
-    subprocess.run(cmd)
+    os.system(cmd)
     
     # get volume and number of non-zero voxels in ROI
     brainmask_path = os.path.join(sdir, sid, 'mri', 'brainmask.mgz')
@@ -532,11 +532,11 @@ def get_tetmesh(sdir, sid, surf, outtet, norm_type, norm_factor=1):
     
     # cleanup
     cmd ='rm ' + geofile
-    subprocess.run(cmd) 
+    os.system(cmd) 
     cmd='rm ' + surftemp_stl
-    subprocess.run(cmd)
+    os.system(cmd)
     cmd = 'rm '+ '/tmp_surface.vtk'
-    subprocess.run(cmd)
+    os.system(cmd)
 
     # return tetmesh filename
     return outtet

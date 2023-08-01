@@ -17,7 +17,7 @@ import numpy
 
 # run the setup
 setup(name='neuroshape',
-      version='0.0.4.6.6',
+      version='0.0.4.6.7',
       description="For computing connectopic and geometric Laplacian eigenmodes and performing null hypothesis testing. As implementation is ongoing, this description is subject to rapid change.",
       author='Nikitas C. Koussis, Systems Neuroscience Group Newcastle',
       author_email='nikitas.koussis@gmail.com',

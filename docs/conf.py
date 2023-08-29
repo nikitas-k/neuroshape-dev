@@ -14,6 +14,7 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath('.'))
 os.system('pip install sphinx_rtd_theme')
+sys.path.append(os.path.abspath('sphinx_rtd_theme'))
 
 # -- Project information -----------------------------------------------------
 

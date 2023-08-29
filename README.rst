@@ -57,15 +57,14 @@ NOTE: The above must be performed in that order, otherwise the setup won't run p
 
 .. code-block:: python
 
-  from neuroshape.eta import eta_squared
-  similarity = eta_squared(matrix_2d)
+  from neuroshape import Shape
+  s = Shape('surfacedata.gii')
 
-We are working on implementing full documentation for all extensions and tools in this package. As the project is in a rapid development stage, we appreciate your patience.
+We are working on implementing full documentation for all extensions and tools in this package. As the project is in a rapid development stage, we appreciate your patience. You visit the `Read the Docs page here for all current documentation <https://neuroshape.readthedocs.io/en/latest/>`_.
 
 Citation
 --------
 
-If you use the ``neuroshape`` toolbox, please cite our paper .....
 If you use the subroutines involved, such as ``lapy`` or ``volume_eigenmodes.py``, please be sure to cite the original authors.
 
 License
